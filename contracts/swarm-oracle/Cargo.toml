@@ -1,0 +1,20 @@
+[package]
+name    = "swarm-oracle"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[features]
+default = []
+library = []
+
+[dependencies]
+cosmwasm-std     = { workspace = true }
+cosmwasm-schema  = { workspace = true }
+cosmwasm-storage = { workspace = true }
+cw-storage-plus  = { workspace = true }
+schemars         = { workspace = true }
+serde            = { workspace = true }
+thiserror        = { workspace = true }

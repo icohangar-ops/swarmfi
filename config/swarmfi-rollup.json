@@ -1,0 +1,13 @@
+{
+  "l2_config": {
+    "chain_id": "swarmfi-1",
+    "denom": "uswarm",
+    "moniker": "swarmfi-operator"
+  },
+  "op_bridge": {
+    "output_submission_interval": "30s",
+    "output_finalization_period": "300s",
+    "batch_submission_target": "initia",
+    "enable_oracle": true
+  }
+}

@@ -1,0 +1,32 @@
+{
+  "project_name": "SwarmFi",
+  "description": "AI swarm intelligence DeFi protocol on Initia — decentralized oracles, prediction markets, and auto-rebalancing vaults powered by stigmergy-based multi-agent coordination.",
+  "chain_id": "swarmfi-1",
+  "deploy_link": "https://github.com/zan-maker/swarmfi/blob/main/docs/DEPLOYMENT.md",
+  "github_repo": "https://github.com/zan-maker/swarmfi",
+  "demo_video": "https://github.com/zan-maker/swarmfi/blob/main/docs/demo/swarmfi-demo.mp4",
+  "website": "",
+  "track": "DeFi + AI",
+  "vm_type": "WasmVM",
+  "l1_network": "initiation-2",
+  "gas_denom": "uswarm",
+  "rpc_endpoint": "http://localhost:26657",
+  "rest_endpoint": "http://localhost:1317",
+  "contracts": {
+    "swarm_oracle": "contracts/swarm-oracle/",
+    "prediction_market": "contracts/prediction-market/",
+    "vault_manager": "contracts/vault-manager/",
+    "reputation_registry": "contracts/reputation-registry/",
+    "bridge_adapter": "contracts/bridge-adapter/"
+  },
+  "frontend": "frontend/",
+  "agents": "agents/",
+  "initia_features": [
+    "InterwovenKit (@initia/interwovenkit-react) for wallet connection and transaction handling",
+    "Interwoven Bridge for cross-chain asset transfers (L1 <-> L2)",
+    "Auto-signing / Session UX for autonomous agent operations",
+    "OPinit optimistic rollup architecture"
+  ],
+  "core_logic_file": "contracts/swarm-oracle/src/contract.rs",
+  "powerup_frontend_file": "frontend/src/app/page.tsx"
+}

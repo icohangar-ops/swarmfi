@@ -1,0 +1,175 @@
+@import "tailwindcss";
+
+:root {
+  --bg-primary: #020617;
+  --bg-card: #0f172a;
+  --bg-card-hover: #1e293b;
+  --bg-border: #1e293b;
+  --accent-cyan: #06B6D4;
+  --accent-purple: #8B5CF6;
+  --accent-green: #10B981;
+  --accent-red: #EF4444;
+  --accent-amber: #F59E0B;
+  --text-primary: #f1f5f9;
+  --text-secondary: #94a3b8;
+  --text-muted: #64748b;
+}
+
+@theme inline {
+  --color-background: var(--bg-primary);
+  --color-foreground: var(--text-primary);
+  --color-card: var(--bg-card);
+  --color-card-hover: var(--bg-card-hover);
+  --color-border: var(--bg-border);
+  --color-accent: var(--accent-cyan);
+  --color-purple: var(--accent-purple);
+  --color-green: var(--accent-green);
+  --color-red: var(--accent-red);
+  --color-amber: var(--accent-amber);
+  --color-muted: var(--text-muted);
+  --color-secondary: var(--text-secondary);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #334155 transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 6px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: #334155;
+  border-radius: 3px;
+}
+
+body {
+  background: #020617;
+  color: #f1f5f9;
+  font-family: var(--font-sans, "Inter", system-ui, sans-serif);
+}
+
+/* Glassmorphism card */
+.glass-card {
+  background: rgba(15, 23, 42, 0.8);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(30, 41, 59, 0.6);
+  border-radius: 12px;
+}
+
+.glass-card-hover:hover {
+  border-color: rgba(6, 182, 212, 0.3);
+  background: rgba(30, 41, 59, 0.6);
+}
+
+/* Glow effects */
+.glow-cyan {
+  box-shadow: 0 0 20px rgba(6, 182, 212, 0.15), 0 0 60px rgba(6, 182, 212, 0.05);
+}
+
+.glow-purple {
+  box-shadow: 0 0 20px rgba(139, 92, 246, 0.15), 0 0 60px rgba(139, 92, 246, 0.05);
+}
+
+/* Swarm particles */
+@keyframes float {
+  0%, 100% { transform: translate(0, 0) scale(1); opacity: 0.6; }
+  25% { transform: translate(30px, -20px) scale(1.1); opacity: 0.8; }
+  50% { transform: translate(-10px, -40px) scale(0.9); opacity: 0.5; }
+  75% { transform: translate(-30px, -10px) scale(1.05); opacity: 0.7; }
+}
+
+@keyframes drift {
+  0% { transform: translate(0, 0); }
+  100% { transform: translate(100px, -80px); }
+}
+
+@keyframes pulse-glow {
+  0%, 100% { opacity: 0.4; transform: scale(1); }
+  50% { opacity: 0.8; transform: scale(1.05); }
+}
+
+@keyframes swarm-move-1 {
+  0%   { transform: translate(0px, 0px); }
+  25%  { transform: translate(80px, -60px); }
+  50%  { transform: translate(-40px, -120px); }
+  75%  { transform: translate(-80px, -40px); }
+  100% { transform: translate(0px, 0px); }
+}
+
+@keyframes swarm-move-2 {
+  0%   { transform: translate(0px, 0px); }
+  25%  { transform: translate(-60px, 80px); }
+  50%  { transform: translate(40px, 120px); }
+  75%  { transform: translate(100px, 40px); }
+  100% { transform: translate(0px, 0px); }
+}
+
+@keyframes swarm-move-3 {
+  0%   { transform: translate(0px, 0px); }
+  25%  { transform: translate(40px, 100px); }
+  50%  { transform: translate(-100px, 60px); }
+  75%  { transform: translate(-40px, -80px); }
+  100% { transform: translate(0px, 0px); }
+}
+
+@keyframes swarm-move-4 {
+  0%   { transform: translate(0px, 0px); }
+  25%  { transform: translate(-80px, -40px); }
+  50%  { transform: translate(60px, -100px); }
+  75%  { transform: translate(80px, 60px); }
+  100% { transform: translate(0px, 0px); }
+}
+
+@keyframes fade-in-up {
+  0% { opacity: 0; transform: translateY(20px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
+.animate-fade-in-up {
+  animation: fade-in-up 0.6s ease-out forwards;
+}
+
+.animate-delay-100 { animation-delay: 100ms; }
+.animate-delay-200 { animation-delay: 200ms; }
+.animate-delay-300 { animation-delay: 300ms; }
+.animate-delay-400 { animation-delay: 400ms; }
+.animate-delay-500 { animation-delay: 500ms; }
+
+/* Recharts custom styling */
+.recharts-cartesian-grid-horizontal line,
+.recharts-cartesian-grid-vertical line {
+  stroke: #1e293b;
+}
+
+.recharts-text {
+  fill: #64748b;
+}
+
+/* Status badge pulse */
+@keyframes status-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.4); }
+  50% { box-shadow: 0 0 0 6px rgba(16, 185, 129, 0); }
+}
+
+.status-pulse-active {
+  animation: status-pulse 2s infinite;
+}
+
+/* Custom modal overlay */
+.modal-overlay {
+  background: rgba(2, 6, 23, 0.85);
+  backdrop-filter: blur(4px);
+}
+
+/* Risk score colors */
+.risk-low { color: #10B981; }
+.risk-medium { color: #F59E0B; }
+.risk-high { color: #EF4444; }
