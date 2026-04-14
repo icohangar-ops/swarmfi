@@ -8,6 +8,8 @@ import {
   predictionMarkets,
   transactions,
   swarmEvents,
+  oraclePriceFeeds,
+  agentConsensusMetrics,
 } from "@/lib/mock-data";
 import {
   AreaChart,
@@ -29,6 +31,9 @@ import {
   Landmark,
   Bot,
   ExternalLink,
+  TrendingUp,
+  Radio,
+  Activity,
 } from "lucide-react";
 
 const typeIcons: Record<string, React.ElementType> = {
@@ -65,7 +70,7 @@ export default function DashboardPage() {
           <div className="mb-8">
             <h1 className="text-2xl font-bold text-white">Dashboard</h1>
             <p className="text-slate-400 text-sm mt-1">
-              Overview of your swarm portfolio and activity
+              Overview of your swarm portfolio and activity on Solana
             </p>
           </div>
 
@@ -88,9 +93,9 @@ export default function DashboardPage() {
               },
               {
                 label: "Pending Rewards",
-                value: `${dashboardOverview.pendingRewards.toLocaleString()} INIT`,
+                value: `${dashboardOverview.pendingRewards.toLocaleString()} SOL`,
                 icon: Gift,
-                change: "~$4,637",
+                change: "~$24,986",
                 positive: true,
               },
               {
@@ -110,6 +115,57 @@ export default function DashboardPage() {
                 </div>
                 <div className="text-2xl font-bold text-white">{card.value}</div>
                 <div className="text-sm text-slate-400 mt-1">{card.label}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* Real-time Oracle Price Feeds */}
+          <div className="glass-card p-6 mb-8">
+            <div className="flex items-center gap-2 mb-4">
+              <Radio className="w-5 h-5 text-cyan-400" />
+              <h2 className="text-lg font-bold text-white">Real-Time Oracle Price Feeds</h2>
+            </div>
+            <p className="text-sm text-slate-400 mb-4">Live prices from agent swarm consensus (Pyth + Switchboard)</p>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              {oraclePriceFeeds.slice(0, 8).map((feed) => (
+                <div key={feed.pair} className="bg-slate-800/50 rounded-lg p-3">
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-xs text-slate-400">{feed.pair}</span>
+                    <span className={`text-xs font-medium ${
+                      feed.change24h.startsWith("+") ? "text-green-400" : "text-red-400"
+                    }`}>
+                      {feed.change24h}
+                    </span>
+                  </div>
+                  <div className="text-sm font-bold text-white">{feed.price}</div>
+                  <div className="flex items-center gap-1 mt-1">
+                    <div className="w-12 h-1 rounded bg-slate-700 overflow-hidden">
+                      <div
+                        className="h-full rounded bg-cyan-500"
+                        style={{ width: `${feed.confidence * 100}%` }}
+                      />
+                    </div>
+                    <span className="text-xs text-muted">{(feed.confidence * 100).toFixed(0)}%</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Agent Consensus Metrics */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-8">
+            {[
+              { label: "Consensus Rate", value: `${agentConsensusMetrics.avgConsensusRate}%`, icon: Activity, color: "text-cyan-400" },
+              { label: "Signals (24h)", value: agentConsensusMetrics.totalStigmergySignals.toLocaleString(), icon: Radio, color: "text-purple-400" },
+              { label: "Coord. Events", value: agentConsensusMetrics.coordinationEvents24h.toString(), icon: BarChart3, color: "text-green-400" },
+              { label: "Swarm Efficiency", value: `${agentConsensusMetrics.swarmEfficiency}%`, icon: TrendingUp, color: "text-amber-400" },
+            ].map((metric) => (
+              <div key={metric.label} className="glass-card p-4 flex items-center gap-3">
+                <metric.icon className={`w-5 h-5 ${metric.color}`} />
+                <div>
+                  <div className="text-lg font-bold text-white">{metric.value}</div>
+                  <div className="text-xs text-slate-400">{metric.label}</div>
+                </div>
               </div>
             ))}
           </div>

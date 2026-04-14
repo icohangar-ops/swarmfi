@@ -14,9 +14,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "SwarmFi — AI Swarm Intelligence Oracle & Prediction Market",
+  title: "SwarmFi — AI Swarm Intelligence on Solana",
   description:
-    "Decentralized AI swarm intelligence protocol for prediction markets, oracle feeds, and auto-rebalancing vaults on the Initia blockchain.",
+    "Decentralized AI swarm intelligence protocol for prediction markets, oracle feeds, and auto-rebalancing vaults on Solana. Powered by Anchor smart contracts with Pyth + Switchboard oracle integration.",
 };
 
 export default function RootLayout({

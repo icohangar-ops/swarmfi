@@ -3,6 +3,7 @@
 import React, { useState } from "react";
 import Sidebar from "@/components/layout/Sidebar";
 import { predictionMarkets, type PredictionMarket } from "@/lib/mock-data";
+import { useSolanaWallet } from "@/lib/wallet";
 import {
   LineChart,
   Line,
@@ -21,6 +22,8 @@ import {
   Filter,
   CheckCircle,
   AlertCircle,
+  Send,
+  Bot,
 } from "lucide-react";
 
 function formatVolume(v: number): string {
@@ -99,9 +102,19 @@ function MarketCard({ market, onClick }: { market: PredictionMarket; onClick: ()
         </div>
       </div>
 
+      {/* Oracle Resolution */}
+      {market.oracleResolution && (
+        <div className="mt-3 pt-3 border-t border-border">
+          <span className="text-xs text-slate-400 flex items-center gap-1">
+            <CheckCircle className="w-3 h-3 text-green-400" />
+            {market.oracleResolution}
+          </span>
+        </div>
+      )}
+
       {/* My position */}
       {market.myPosition && (
-        <div className="mt-3 pt-3 border-t border-border flex items-center justify-between">
+        <div className="mt-2 pt-2 border-t border-border flex items-center justify-between">
           <span className="text-xs text-slate-400">
             Position: {market.myPosition.outcome} — ${market.myPosition.amount.toLocaleString()}
           </span>
@@ -192,16 +205,111 @@ function CreateMarketModal({ open, onClose }: { open: boolean; onClose: () => vo
               />
             </div>
             <div>
-              <label className="text-sm text-slate-400 mb-1 block">Initial Liquidity (INIT)</label>
+              <label className="text-sm text-slate-400 mb-1 block">Initial Liquidity (SOL)</label>
               <input
                 type="number"
-                placeholder="1000"
+                placeholder="10"
                 className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-border text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500/50 text-sm"
               />
             </div>
           </div>
           <button className="w-full py-3 rounded-lg bg-gradient-to-r from-cyan-500 to-purple-500 text-white font-semibold hover:from-cyan-400 hover:to-purple-400 transition-all mt-2">
             Create Market
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SubmitPredictionModal({
+  market,
+  open,
+  onClose,
+}: {
+  market: PredictionMarket | null;
+  open: boolean;
+  onClose: () => void;
+}) {
+  const [selectedOutcome, setSelectedOutcome] = useState("");
+  const [stakeAmount, setStakeAmount] = useState("");
+  const { isConnected, connect } = useSolanaWallet();
+
+  if (!open || !market) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 modal-overlay flex items-center justify-center p-4" onClick={onClose}>
+      <div className="glass-card p-6 w-full max-w-md" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-6">
+          <h2 className="text-lg font-bold text-white">Submit Prediction</h2>
+          <button onClick={onClose} className="text-slate-400 hover:text-white">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        <div className="space-y-4">
+          <div className="bg-slate-800/50 rounded-lg p-3">
+            <div className="text-sm text-white font-medium">{market.title}</div>
+            <div className="text-xs text-slate-400 mt-1">{market.oracleResolution}</div>
+          </div>
+
+          <div>
+            <label className="text-sm text-slate-400 mb-2 block">Choose Outcome</label>
+            <div className="grid grid-cols-2 gap-2">
+              {market.outcomes.map((outcome) => (
+                <button
+                  key={outcome.name}
+                  onClick={() => setSelectedOutcome(outcome.name)}
+                  className={`p-3 rounded-lg text-sm font-medium transition-all border ${
+                    selectedOutcome === outcome.name
+                      ? "bg-cyan-500/10 text-cyan-400 border-cyan-500/30"
+                      : "bg-slate-800/50 text-slate-300 border-border hover:border-cyan-500/30"
+                  }`}
+                >
+                  {outcome.name}
+                  <span className="block text-xs text-muted mt-1">
+                    {Math.round(outcome.probability * 100)}% probability
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <label className="text-sm text-slate-400 mb-1 block">Stake Amount (SOL)</label>
+            <input
+              type="number"
+              value={stakeAmount}
+              onChange={(e) => setStakeAmount(e.target.value)}
+              placeholder="0.00"
+              className="w-full px-3 py-3 rounded-lg bg-slate-800 border border-border text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500/50 text-lg"
+            />
+            <div className="flex gap-2 mt-2">
+              {["1", "5", "10", "50"].map((preset) => (
+                <button
+                  key={preset}
+                  onClick={() => setStakeAmount(preset)}
+                  className="text-xs px-3 py-1.5 rounded-lg bg-slate-800 text-slate-300 hover:text-white hover:bg-slate-700 transition-colors"
+                >
+                  {preset} SOL
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <button
+            onClick={() => {
+              if (!isConnected) {
+                connect();
+                return;
+              }
+              // In production: submit on-chain tx via Anchor
+              onClose();
+            }}
+            className="w-full py-3 rounded-lg bg-gradient-to-r from-cyan-500 to-purple-500 text-white font-semibold hover:from-cyan-400 hover:to-purple-400 transition-all flex items-center justify-center gap-2"
+          >
+            <Send className="w-4 h-4" />
+            {!isConnected ? "Connect Wallet First" : `Submit Prediction${stakeAmount ? ` (${stakeAmount} SOL)` : ""}`}
           </button>
         </div>
       </div>
@@ -218,127 +326,193 @@ function MarketDetailModal({
   open: boolean;
   onClose: () => void;
 }) {
+  const [showSubmitPrediction, setShowSubmitPrediction] = useState(false);
+
   if (!open || !market) return null;
 
   return (
-    <div className="fixed inset-0 z-50 modal-overlay flex items-center justify-center p-4" onClick={onClose}>
-      <div className="glass-card p-6 w-full max-w-2xl max-h-[85vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-start justify-between mb-4">
-          <div>
-            <h2 className="text-lg font-bold text-white">{market.title}</h2>
-            <p className="text-sm text-slate-400 mt-1">{market.description}</p>
-          </div>
-          <button onClick={onClose} className="text-slate-400 hover:text-white ml-4">
-            <X className="w-5 h-5" />
-          </button>
-        </div>
-
-        {/* Price chart */}
-        <div className="mb-6">
-          <h3 className="text-sm font-medium text-slate-300 mb-3">Price History (Yes Outcome)</h3>
-          <ResponsiveContainer width="100%" height={200}>
-            <LineChart data={market.priceHistory}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
-              <XAxis dataKey="time" stroke="#64748b" fontSize={12} />
-              <YAxis stroke="#64748b" fontSize={12} domain={[0, 1]} />
-              <Tooltip
-                contentStyle={{
-                  backgroundColor: "#0f172a",
-                  border: "1px solid #1e293b",
-                  borderRadius: "8px",
-                  color: "#f1f5f9",
-                  fontSize: 12,
-                }}
-              />
-              <Line type="monotone" dataKey="yes" stroke="#06B6D4" strokeWidth={2} dot={false} name="Yes" />
-              <Line type="monotone" dataKey="no" stroke="#8B5CF6" strokeWidth={2} dot={false} name="No" />
-            </LineChart>
-          </ResponsiveContainer>
-        </div>
-
-        {/* Stats */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
-          <div className="bg-slate-800/50 rounded-lg p-3 text-center">
-            <div className="text-lg font-bold text-white">{formatVolume(market.totalVolume)}</div>
-            <div className="text-xs text-slate-400">Volume</div>
-          </div>
-          <div className="bg-slate-800/50 rounded-lg p-3 text-center">
-            <div className="text-lg font-bold text-white">{market.timeRemaining}</div>
-            <div className="text-xs text-slate-400">Remaining</div>
-          </div>
-          <div className="bg-slate-800/50 rounded-lg p-3 text-center">
-            <div className="text-lg font-bold text-white">{market.participants.toLocaleString()}</div>
-            <div className="text-xs text-slate-400">Participants</div>
-          </div>
-          <div className="bg-slate-800/50 rounded-lg p-3 text-center">
-            <div className="text-lg font-bold text-cyan-400">{market.category}</div>
-            <div className="text-xs text-slate-400">Category</div>
-          </div>
-        </div>
-
-        {/* Order book mock */}
-        <div className="mb-4">
-          <h3 className="text-sm font-medium text-slate-300 mb-3">Order Book</h3>
-          <div className="grid grid-cols-2 gap-4">
+    <>
+      <div className="fixed inset-0 z-50 modal-overlay flex items-center justify-center p-4" onClick={onClose}>
+        <div className="glass-card p-6 w-full max-w-2xl max-h-[85vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+          <div className="flex items-start justify-between mb-4">
             <div>
-              <div className="text-xs text-cyan-400 font-medium mb-2">BUY — Yes</div>
-              {[98, 96, 94, 92, 90].map((price) => (
-                <div key={price} className="flex items-center justify-between text-xs py-1">
-                  <span className="text-slate-400">{(price / 100).toFixed(2)}</span>
-                  <div className="flex-1 mx-2 h-1.5 rounded bg-slate-800 overflow-hidden">
-                    <div className="h-full bg-cyan-500/30 rounded" style={{ width: `${Math.random() * 60 + 20}%` }} />
-                  </div>
-                  <span className="text-slate-300">{Math.floor(Math.random() * 5000 + 1000)}</span>
-                </div>
-              ))}
+              <h2 className="text-lg font-bold text-white">{market.title}</h2>
+              <p className="text-sm text-slate-400 mt-1">{market.description}</p>
             </div>
-            <div>
-              <div className="text-xs text-purple-400 font-medium mb-2">SELL — No</div>
-              {[2, 4, 6, 8, 10].map((price) => (
-                <div key={price} className="flex items-center justify-between text-xs py-1">
-                  <span className="text-slate-400">{(price / 100).toFixed(2)}</span>
-                  <div className="flex-1 mx-2 h-1.5 rounded bg-slate-800 overflow-hidden">
-                    <div className="h-full bg-purple-500/30 rounded" style={{ width: `${Math.random() * 60 + 20}%` }} />
-                  </div>
-                  <span className="text-slate-300">{Math.floor(Math.random() * 5000 + 1000)}</span>
-                </div>
-              ))}
-            </div>
+            <button onClick={onClose} className="text-slate-400 hover:text-white ml-4">
+              <X className="w-5 h-5" />
+            </button>
           </div>
-        </div>
 
-        {/* Activity feed */}
-        <div>
-          <h3 className="text-sm font-medium text-slate-300 mb-3">Recent Activity</h3>
-          <div className="space-y-2">
-            {[
-              { action: "Bought YES", amount: "$5,000", time: "2m ago" },
-              { action: "Bought NO", amount: "$3,200", time: "8m ago" },
-              { action: "Bought YES", amount: "$12,000", time: "15m ago" },
-              { action: "Sold YES", amount: "$2,100", time: "22m ago" },
-              { action: "Bought NO", amount: "$8,500", time: "30m ago" },
-            ].map((item, i) => (
-              <div key={i} className="flex items-center justify-between py-1.5 text-xs">
-                <div className="flex items-center gap-2">
-                  {item.action.startsWith("Bought YES") ? (
-                    <CheckCircle className="w-3.5 h-3.5 text-green-400" />
-                  ) : item.action.startsWith("Bought NO") ? (
-                    <AlertCircle className="w-3.5 h-3.5 text-purple-400" />
-                  ) : (
-                    <AlertCircle className="w-3.5 h-3.5 text-red-400" />
-                  )}
-                  <span className="text-slate-300">{item.action}</span>
-                </div>
-                <div className="flex items-center gap-3">
-                  <span className="text-white">{item.amount}</span>
-                  <span className="text-muted">{item.time}</span>
-                </div>
+          {/* Oracle Resolution Badge */}
+          {market.oracleResolution && (
+            <div className="mb-4 px-3 py-2 rounded-lg bg-green-400/5 border border-green-400/20">
+              <div className="text-xs text-green-400 flex items-center gap-1.5">
+                <CheckCircle className="w-3.5 h-3.5" />
+                {market.oracleResolution}
               </div>
-            ))}
+            </div>
+          )}
+
+          {/* Price chart */}
+          <div className="mb-6">
+            <h3 className="text-sm font-medium text-slate-300 mb-3">Price History (Yes Outcome)</h3>
+            <ResponsiveContainer width="100%" height={200}>
+              <LineChart data={market.priceHistory}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+                <XAxis dataKey="time" stroke="#64748b" fontSize={12} />
+                <YAxis stroke="#64748b" fontSize={12} domain={[0, 1]} />
+                <Tooltip
+                  contentStyle={{
+                    backgroundColor: "#0f172a",
+                    border: "1px solid #1e293b",
+                    borderRadius: "8px",
+                    color: "#f1f5f9",
+                    fontSize: 12,
+                  }}
+                />
+                <Line type="monotone" dataKey="yes" stroke="#06B6D4" strokeWidth={2} dot={false} name="Yes" />
+                <Line type="monotone" dataKey="no" stroke="#8B5CF6" strokeWidth={2} dot={false} name="No" />
+              </LineChart>
+            </ResponsiveContainer>
           </div>
+
+          {/* Stats */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
+            <div className="bg-slate-800/50 rounded-lg p-3 text-center">
+              <div className="text-lg font-bold text-white">{formatVolume(market.totalVolume)}</div>
+              <div className="text-xs text-slate-400">Volume</div>
+            </div>
+            <div className="bg-slate-800/50 rounded-lg p-3 text-center">
+              <div className="text-lg font-bold text-white">{market.timeRemaining}</div>
+              <div className="text-xs text-slate-400">Remaining</div>
+            </div>
+            <div className="bg-slate-800/50 rounded-lg p-3 text-center">
+              <div className="text-lg font-bold text-white">{market.participants.toLocaleString()}</div>
+              <div className="text-xs text-slate-400">Participants</div>
+            </div>
+            <div className="bg-slate-800/50 rounded-lg p-3 text-center">
+              <div className="text-lg font-bold text-cyan-400">{market.category}</div>
+              <div className="text-xs text-slate-400">Category</div>
+            </div>
+          </div>
+
+          {/* Agent Predictions with Confidence Scores */}
+          {market.agentPredictions && market.agentPredictions.length > 0 && (
+            <div className="mb-6">
+              <h3 className="text-sm font-medium text-slate-300 mb-3 flex items-center gap-2">
+                <Bot className="w-4 h-4 text-purple-400" />
+                Agent Predictions
+              </h3>
+              <div className="space-y-2">
+                {market.agentPredictions.map((ap, i) => (
+                  <div key={i} className="flex items-center justify-between p-3 bg-slate-800/30 rounded-lg">
+                    <div className="flex items-center gap-2">
+                      <Bot className="w-4 h-4 text-cyan-400" />
+                      <span className="text-sm text-white font-medium">{ap.agent}</span>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <span className="text-xs text-slate-300">{ap.prediction}</span>
+                      <div className="flex items-center gap-1">
+                        <div className="w-12 h-1.5 rounded bg-slate-700 overflow-hidden">
+                          <div
+                            className="h-full rounded bg-cyan-500"
+                            style={{ width: `${ap.confidence * 100}%` }}
+                          />
+                        </div>
+                        <span className="text-xs text-cyan-400">{(ap.confidence * 100).toFixed(0)}%</span>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Order book mock */}
+          <div className="mb-4">
+            <h3 className="text-sm font-medium text-slate-300 mb-3">Order Book</h3>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <div className="text-xs text-cyan-400 font-medium mb-2">BUY — Yes</div>
+                {[98, 96, 94, 92, 90].map((price) => (
+                  <div key={price} className="flex items-center justify-between text-xs py-1">
+                    <span className="text-slate-400">{(price / 100).toFixed(2)}</span>
+                    <div className="flex-1 mx-2 h-1.5 rounded bg-slate-800 overflow-hidden">
+                      <div className="h-full bg-cyan-500/30 rounded" style={{ width: `${Math.random() * 60 + 20}%` }} />
+                    </div>
+                    <span className="text-slate-300">{Math.floor(Math.random() * 5000 + 1000)}</span>
+                  </div>
+                ))}
+              </div>
+              <div>
+                <div className="text-xs text-purple-400 font-medium mb-2">SELL — No</div>
+                {[2, 4, 6, 8, 10].map((price) => (
+                  <div key={price} className="flex items-center justify-between text-xs py-1">
+                    <span className="text-slate-400">{(price / 100).toFixed(2)}</span>
+                    <div className="flex-1 mx-2 h-1.5 rounded bg-slate-800 overflow-hidden">
+                      <div className="h-full bg-purple-500/30 rounded" style={{ width: `${Math.random() * 60 + 20}%` }} />
+                    </div>
+                    <span className="text-slate-300">{Math.floor(Math.random() * 5000 + 1000)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Activity feed */}
+          <div className="mb-6">
+            <h3 className="text-sm font-medium text-slate-300 mb-3">Recent Activity</h3>
+            <div className="space-y-2">
+              {[
+                { action: "Bought YES", amount: "$5,000", time: "2m ago" },
+                { action: "Bought NO", amount: "$3,200", time: "8m ago" },
+                { action: "Bought YES", amount: "$12,000", time: "15m ago" },
+                { action: "Sold YES", amount: "$2,100", time: "22m ago" },
+                { action: "Bought NO", amount: "$8,500", time: "30m ago" },
+              ].map((item, i) => (
+                <div key={i} className="flex items-center justify-between py-1.5 text-xs">
+                  <div className="flex items-center gap-2">
+                    {item.action.startsWith("Bought YES") ? (
+                      <CheckCircle className="w-3.5 h-3.5 text-green-400" />
+                    ) : item.action.startsWith("Bought NO") ? (
+                      <AlertCircle className="w-3.5 h-3.5 text-purple-400" />
+                    ) : (
+                      <AlertCircle className="w-3.5 h-3.5 text-red-400" />
+                    )}
+                    <span className="text-slate-300">{item.action}</span>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <span className="text-white">{item.amount}</span>
+                    <span className="text-muted">{item.time}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Submit Prediction Button */}
+          {market.status === "active" && (
+            <button
+              onClick={() => {
+                onClose();
+                setShowSubmitPrediction(true);
+              }}
+              className="w-full py-3 rounded-lg bg-gradient-to-r from-cyan-500 to-purple-500 text-white font-semibold hover:from-cyan-400 hover:to-purple-400 transition-all flex items-center justify-center gap-2"
+            >
+              <Send className="w-4 h-4" />
+              Submit Prediction
+            </button>
+          )}
         </div>
       </div>
-    </div>
+
+      <SubmitPredictionModal
+        market={market}
+        open={showSubmitPrediction}
+        onClose={() => setShowSubmitPrediction(false)}
+      />
+    </>
   );
 }
 

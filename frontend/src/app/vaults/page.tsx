@@ -3,6 +3,7 @@
 import React, { useState } from "react";
 import Sidebar from "@/components/layout/Sidebar";
 import { vaults, type Vault } from "@/lib/mock-data";
+import { useSolanaWallet } from "@/lib/wallet";
 import {
   LineChart,
   Line,
@@ -143,6 +144,7 @@ function DepositWithdrawModal({
   mode: "deposit" | "withdraw";
 }) {
   const [amount, setAmount] = useState("");
+  const { isConnected, connect } = useSolanaWallet();
 
   if (!open || !vault) return null;
 
@@ -160,7 +162,7 @@ function DepositWithdrawModal({
 
         <div className="space-y-4">
           <div>
-            <label className="text-sm text-slate-400 mb-1 block">Amount (USDC)</label>
+            <label className="text-sm text-slate-400 mb-1 block">Amount (SOL)</label>
             <input
               type="number"
               value={amount}
@@ -169,13 +171,13 @@ function DepositWithdrawModal({
               className="w-full px-3 py-3 rounded-lg bg-slate-800 border border-border text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500/50 text-lg"
             />
             <div className="flex gap-2 mt-2">
-              {["1000", "5000", "10000", "50000"].map((preset) => (
+              {["1", "5", "10", "50"].map((preset) => (
                 <button
                   key={preset}
                   onClick={() => setAmount(preset)}
                   className="text-xs px-3 py-1.5 rounded-lg bg-slate-800 text-slate-300 hover:text-white hover:bg-slate-700 transition-colors"
                 >
-                  ${Number(preset).toLocaleString()}
+                  {preset} SOL
                 </button>
               ))}
             </div>
@@ -196,8 +198,20 @@ function DepositWithdrawModal({
               </span>
             </div>
           </div>
-          <button className="w-full py-3 rounded-lg bg-gradient-to-r from-cyan-500 to-purple-500 text-white font-semibold hover:from-cyan-400 hover:to-purple-400 transition-all">
-            {mode === "deposit" ? "Deposit" : "Withdraw"} {amount ? `$${Number(amount).toLocaleString()}` : ""}
+          <button
+            onClick={() => {
+              if (!isConnected) {
+                connect();
+                return;
+              }
+              // In production: submit on-chain tx via Anchor
+              onClose();
+            }}
+            className="w-full py-3 rounded-lg bg-gradient-to-r from-cyan-500 to-purple-500 text-white font-semibold hover:from-cyan-400 hover:to-purple-400 transition-all"
+          >
+            {!isConnected
+              ? "Connect Wallet First"
+              : `${mode === "deposit" ? "Deposit" : "Withdraw"} ${amount ? `${amount} SOL` : ""}`}
           </button>
         </div>
       </div>
@@ -353,7 +367,7 @@ function VaultDetailModal({
               className="flex-1 flex items-center justify-center gap-2 py-3 rounded-lg bg-gradient-to-r from-cyan-500 to-purple-500 text-white font-semibold hover:from-cyan-400 hover:to-purple-400 transition-all"
             >
               <ArrowDownRight className="w-4 h-4" />
-              Deposit
+              Deposit SOL
             </button>
             <button
               onClick={() => {
@@ -363,7 +377,7 @@ function VaultDetailModal({
               className="flex-1 flex items-center justify-center gap-2 py-3 rounded-lg border border-border text-slate-300 font-semibold hover:border-cyan-500/50 hover:text-white transition-all"
             >
               <ArrowUpRight className="w-4 h-4" />
-              Withdraw
+              Withdraw SOL
             </button>
           </div>
         </div>
@@ -391,7 +405,7 @@ export default function VaultsPage() {
           <div className="mb-8">
             <h1 className="text-2xl font-bold text-white">Vaults</h1>
             <p className="text-slate-400 text-sm mt-1">
-              Auto-rebalancing vaults managed by AI swarm intelligence
+              Auto-rebalancing vaults managed by AI swarm intelligence on Solana
             </p>
           </div>
 

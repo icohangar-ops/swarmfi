@@ -3,7 +3,8 @@
 import React, { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useInitiaWallet } from "@/lib/wallet";
+import { useSolanaWallet } from "@/lib/wallet";
+import { useWalletModal } from "@solana/wallet-adapter-react-ui";
 import {
   Menu,
   X,
@@ -26,8 +27,26 @@ const navLinks = [
 
 export default function Navbar() {
   const pathname = usePathname();
-  const { isConnected, username, disconnect, openWallet } = useInitiaWallet();
+  const { isConnected, address, disconnect, connect } = useSolanaWallet();
+  const { setVisible } = useWalletModal();
   const [mobileOpen, setMobileOpen] = useState(false);
+
+  const truncatedAddress = address
+    ? `${address.slice(0, 4)}...${address.slice(-4)}`
+    : "";
+
+  const handleWalletClick = () => {
+    if (isConnected) {
+      disconnect();
+    } else {
+      // Try to use wallet modal first, fallback to our connect
+      try {
+        setVisible(true);
+      } catch {
+        connect();
+      }
+    }
+  };
 
   return (
     <nav className="fixed top-0 left-0 right-0 z-50 glass-card border-0 border-b border-border">
@@ -66,17 +85,17 @@ export default function Navbar() {
 
           {/* Wallet */}
           <div className="flex items-center gap-3">
-            {isConnected && username && (
-              <span className="hidden sm:inline text-sm text-slate-400">
-                {username}
+            {isConnected && (
+              <span className="hidden sm:inline text-xs text-slate-400 font-mono bg-slate-800/50 px-2 py-1 rounded">
+                {truncatedAddress}
               </span>
             )}
             <button
-              onClick={isConnected ? disconnect : openWallet}
+              onClick={handleWalletClick}
               className="flex items-center gap-2 px-4 py-2 rounded-lg bg-gradient-to-r from-cyan-500 to-purple-500 text-white text-sm font-semibold hover:from-cyan-400 hover:to-purple-400 transition-all shadow-lg shadow-cyan-500/20"
             >
               <Wallet className="w-4 h-4" />
-              {isConnected ? "Disconnect" : "Connect Wallet"}
+              {isConnected ? "Disconnect" : "Connect Phantom"}
             </button>
 
             {/* Mobile hamburger */}
