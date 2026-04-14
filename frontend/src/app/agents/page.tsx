@@ -2,7 +2,7 @@
 
 import React, { useState } from "react";
 import Sidebar from "@/components/layout/Sidebar";
-import { agents, stigmergyFeed, type Agent, type StigmergySignal } from "@/lib/mock-data";
+import { agents, stigmergyFeed, reputationTiers, type Agent, type StigmergySignal } from "@/lib/mock-data";
 import {
   Bot,
   Activity,
@@ -15,6 +15,8 @@ import {
   AlertTriangle,
   ArrowRightLeft,
   BarChart3,
+  Award,
+  Coins,
 } from "lucide-react";
 
 const typeColors: Record<string, string> = {
@@ -50,6 +52,13 @@ const signalTypeColors: Record<string, string> = {
   rebalance: "text-purple-400",
 };
 
+const tierColors: Record<string, string> = {
+  Bronze: "text-amber-700 bg-amber-700/10 border-amber-700/30",
+  Silver: "text-slate-300 bg-slate-300/10 border-slate-300/30",
+  Gold: "text-yellow-400 bg-yellow-400/10 border-yellow-400/30",
+  Platinum: "text-cyan-400 bg-cyan-400/10 border-cyan-400/30",
+};
+
 // SVG swarm network graph
 function SwarmNetworkGraph() {
   const graphNodes = agents.slice(0, 12).map((agent, i) => {
@@ -63,6 +72,7 @@ function SwarmNetworkGraph() {
       type: agent.type,
       status: agent.status,
       accuracy: agent.accuracy,
+      reputationTier: agent.reputationTier,
     };
   });
 
@@ -202,6 +212,35 @@ function AgentDetailModal({
           </button>
         </div>
 
+        {/* Reputation & Identity Token */}
+        {agent.reputationTier && (
+          <div className="grid grid-cols-3 gap-3 mb-6">
+            <div className="bg-slate-800/50 rounded-lg p-3 text-center">
+              <div className="flex items-center justify-center gap-1 mb-1">
+                <Award className="w-4 h-4" style={{ color: agent.reputationTier === "Platinum" ? "#06B6D4" : agent.reputationTier === "Gold" ? "#F59E0B" : agent.reputationTier === "Silver" ? "#94a3b8" : "#92400e" }} />
+              </div>
+              <div className={`text-sm font-bold ${tierColors[agent.reputationTier]?.split(" ")[0]}`}>
+                {agent.reputationTier}
+              </div>
+              <div className="text-xs text-slate-400">Reputation</div>
+            </div>
+            <div className="bg-slate-800/50 rounded-lg p-3 text-center">
+              <div className="flex items-center justify-center gap-1 mb-1">
+                <Coins className="w-4 h-4 text-cyan-400" />
+              </div>
+              <div className="text-sm font-bold text-white">{agent.stakingAmount} SOL</div>
+              <div className="text-xs text-slate-400">Staked</div>
+            </div>
+            <div className="bg-slate-800/50 rounded-lg p-3 text-center">
+              <div className="flex items-center justify-center gap-1 mb-1">
+                <Activity className="w-4 h-4 text-purple-400" />
+              </div>
+              <div className="text-xs font-bold text-slate-300 font-mono">{agent.identityToken}</div>
+              <div className="text-xs text-slate-400">ID Token</div>
+            </div>
+          </div>
+        )}
+
         {/* Key metrics */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
           <div className="bg-slate-800/50 rounded-lg p-3 text-center">
@@ -265,6 +304,7 @@ export default function AgentsPage() {
   const activeAgents = agents.filter((a) => a.status === "active").length;
   const avgAccuracy = (agents.reduce((a, b) => a + b.accuracy, 0) / agents.length).toFixed(1);
   const totalDecisions = agents.reduce((a, b) => a + b.decisions24h, 0);
+  const totalStaked = agents.reduce((a, b) => a + (b.stakingAmount || 0), 0);
 
   return (
     <div className="flex">
@@ -275,7 +315,7 @@ export default function AgentsPage() {
           <div className="mb-8">
             <h1 className="text-2xl font-bold text-white">AI Agent Swarm</h1>
             <p className="text-slate-400 text-sm mt-1">
-              {activeAgents} active agents • {avgAccuracy}% avg accuracy • {totalDecisions.toLocaleString()} decisions today
+              {activeAgents} active agents • {avgAccuracy}% avg accuracy • {totalDecisions.toLocaleString()} decisions today • {totalStaked.toLocaleString()} SOL staked
             </p>
           </div>
 
@@ -297,6 +337,24 @@ export default function AgentsPage() {
                 </span>
               ))}
             </div>
+          </div>
+
+          {/* Reputation Tier Summary */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-8">
+            {(["Bronze", "Silver", "Gold", "Platinum"] as const).map((tier) => {
+              const tierInfo = reputationTiers[tier];
+              const count = agents.filter((a) => a.reputationTier === tier).length;
+              return (
+                <div key={tier} className="glass-card p-4 text-center">
+                  <div className={`text-lg font-bold ${tierInfo.color}`}>{count}</div>
+                  <div className="flex items-center justify-center gap-1 mt-1">
+                    <Award className="w-3.5 h-3.5" style={{ color: tier === "Platinum" ? "#06B6D4" : tier === "Gold" ? "#F59E0B" : tier === "Silver" ? "#94a3b8" : "#92400e" }} />
+                    <span className="text-xs text-slate-400">{tier}</span>
+                  </div>
+                  <div className="text-xs text-muted mt-0.5">≥{tierInfo.minStake} SOL</div>
+                </div>
+              );
+            })}
           </div>
 
           {/* Type Filter */}
@@ -330,7 +388,8 @@ export default function AgentsPage() {
                     <tr className="text-left text-slate-400 border-b border-border">
                       <th className="pb-3 font-medium">Agent</th>
                       <th className="pb-3 font-medium">Type</th>
-                      <th className="pb-3 font-medium">Status</th>
+                      <th className="pb-3 font-medium">Reputation</th>
+                      <th className="pb-3 font-medium">Staked</th>
                       <th className="pb-3 font-medium text-right">Accuracy</th>
                       <th className="pb-3 font-medium text-right">Uptime</th>
                     </tr>
@@ -356,10 +415,14 @@ export default function AgentsPage() {
                           </span>
                         </td>
                         <td className="py-3">
-                          <span className={`text-xs flex items-center gap-1 ${statusColors[agent.status]}`}>
-                            {(() => { const StatusIcon = statusIcons[agent.status]; return <StatusIcon className="w-3 h-3" />; })()}
-                            {agent.status}
-                          </span>
+                          {agent.reputationTier && (
+                            <span className={`text-xs px-2 py-0.5 rounded-full border ${tierColors[agent.reputationTier]}`}>
+                              {agent.reputationTier}
+                            </span>
+                          )}
+                        </td>
+                        <td className="py-3 text-slate-300 text-xs">
+                          {agent.stakingAmount} SOL
                         </td>
                         <td className="py-3 text-right">
                           <span className={`font-medium ${agent.accuracy >= 93 ? "text-green-400" : agent.accuracy >= 88 ? "text-cyan-400" : "text-amber-400"}`}>

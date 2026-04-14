@@ -1,5 +1,6 @@
 // ============================================================
 // SwarmFi Mock Data — comprehensive demo data for all pages
+// Updated for Solana / Colosseum Frontier Hackathon
 // ============================================================
 
 // ---- Types ----
@@ -15,6 +16,8 @@ export interface PredictionMarket {
   category: string;
   myPosition?: { outcome: string; amount: number; pnl: number };
   priceHistory: { time: string; yes: number; no: number }[];
+  agentPredictions?: { agent: string; prediction: string; confidence: number }[];
+  oracleResolution?: string;
 }
 
 export interface Vault {
@@ -44,6 +47,9 @@ export interface Agent {
   consensusRate: number;
   recentDecisions: { time: string; action: string; outcome: string }[];
   performanceMetrics: { metric: string; value: string }[];
+  reputationTier?: "Bronze" | "Silver" | "Gold" | "Platinum";
+  stakingAmount?: number; // SOL
+  identityToken?: string;
 }
 
 export interface Transaction {
@@ -70,12 +76,40 @@ export interface PriceFeed {
   volume: number;
 }
 
+export interface OraclePrice {
+  pair: string;
+  price: string;
+  change24h: string;
+  source: string;
+  confidence: number;
+}
+
+// ---- Agent Reputation Tiers ----
+export const reputationTiers = {
+  Bronze: { minStake: 10, color: "text-amber-700", bg: "bg-amber-700/10", border: "border-amber-700/30" },
+  Silver: { minStake: 50, color: "text-slate-300", bg: "bg-slate-300/10", border: "border-slate-300/30" },
+  Gold: { minStake: 200, color: "text-yellow-400", bg: "bg-yellow-400/10", border: "border-yellow-400/30" },
+  Platinum: { minStake: 500, color: "text-cyan-400", bg: "bg-cyan-400/10", border: "border-cyan-400/30" },
+} as const;
+
+// ---- Real-time Oracle Price Feeds ----
+export const oraclePriceFeeds: OraclePrice[] = [
+  { pair: "SOL/USD", price: "$175.42", change24h: "+3.21%", source: "Nexus Oracle", confidence: 0.97 },
+  { pair: "BTC/USD", price: "$98,432", change24h: "+1.87%", source: "Nexus Oracle", confidence: 0.98 },
+  { pair: "ETH/USD", price: "$3,847", change24h: "+2.14%", source: "MetaMind", confidence: 0.96 },
+  { pair: "JTO/USD", price: "$3.21", change24h: "-1.45%", source: "CryptoSage", confidence: 0.93 },
+  { pair: "BONK/USD", price: "$0.00002847", change24h: "+12.34%", source: "Nexus Oracle", confidence: 0.89 },
+  { pair: "RAY/USD", price: "$4.87", change24h: "+5.67%", source: "MetaMind", confidence: 0.94 },
+  { pair: "JUP/USD", price: "$1.23", change24h: "+2.89%", source: "CryptoSage", confidence: 0.95 },
+  { pair: "TENSOR/USD", price: "$0.67", change24h: "-0.34%", source: "Nexus Oracle", confidence: 0.91 },
+];
+
 // ---- Prediction Markets ----
 export const predictionMarkets: PredictionMarket[] = [
   {
     id: "pm-1",
     title: "Will BTC reach $100K by end of Q2 2025?",
-    description: "Bitcoin price prediction market based on aggregated AI oracle signals.",
+    description: "Bitcoin price prediction market based on aggregated AI oracle signals on Solana.",
     outcomes: [
       { name: "Yes", probability: 0.62 },
       { name: "No", probability: 0.38 },
@@ -86,6 +120,12 @@ export const predictionMarkets: PredictionMarket[] = [
     status: "active",
     category: "Crypto Price",
     myPosition: { outcome: "Yes", amount: 5000, pnl: 1240 },
+    oracleResolution: "On-chain Pyth + Switchboard oracle feeds",
+    agentPredictions: [
+      { agent: "Nexus Oracle", prediction: "Yes (62%)", confidence: 0.97 },
+      { agent: "MetaMind", prediction: "Yes (58%)", confidence: 0.94 },
+      { agent: "CryptoSage", prediction: "No (55%)", confidence: 0.89 },
+    ],
     priceHistory: [
       { time: "Day 1", yes: 0.45, no: 0.55 },
       { time: "Day 2", yes: 0.48, no: 0.52 },
@@ -110,6 +150,11 @@ export const predictionMarkets: PredictionMarket[] = [
     status: "active",
     category: "Crypto Price",
     myPosition: { outcome: "No", amount: 3000, pnl: 450 },
+    oracleResolution: "On-chain Pyth + Switchboard oracle feeds",
+    agentPredictions: [
+      { agent: "Nexus Oracle", prediction: "No (80%)", confidence: 0.96 },
+      { agent: "MetaMind", prediction: "No (85%)", confidence: 0.93 },
+    ],
     priceHistory: [
       { time: "Day 1", yes: 0.22, no: 0.78 },
       { time: "Day 2", yes: 0.20, no: 0.80 },
@@ -122,8 +167,8 @@ export const predictionMarkets: PredictionMarket[] = [
   },
   {
     id: "pm-3",
-    title: "Will Initia TVL exceed $500M by June 2025?",
-    description: "Total Value Locked prediction for the Initia ecosystem.",
+    title: "Will Solana TVL exceed $10B by June 2025?",
+    description: "Total Value Locked prediction for the Solana DeFi ecosystem.",
     outcomes: [
       { name: "Yes", probability: 0.41 },
       { name: "No", probability: 0.59 },
@@ -133,6 +178,11 @@ export const predictionMarkets: PredictionMarket[] = [
     participants: 5421,
     status: "active",
     category: "DeFi",
+    oracleResolution: "On-chain Switchboard oracle feeds",
+    agentPredictions: [
+      { agent: "Veritas", prediction: "Yes (45%)", confidence: 0.91 },
+      { agent: "TruthEngine", prediction: "No (60%)", confidence: 0.95 },
+    ],
     priceHistory: [
       { time: "Day 1", yes: 0.35, no: 0.65 },
       { time: "Day 2", yes: 0.37, no: 0.63 },
@@ -146,7 +196,7 @@ export const predictionMarkets: PredictionMarket[] = [
   {
     id: "pm-4",
     title: "Will the Fed cut rates in June 2025?",
-    description: "Federal Reserve interest rate decision prediction.",
+    description: "Federal Reserve interest rate decision prediction resolved via on-chain oracle.",
     outcomes: [
       { name: "Cut", probability: 0.73 },
       { name: "Hold", probability: 0.22 },
@@ -158,6 +208,12 @@ export const predictionMarkets: PredictionMarket[] = [
     status: "active",
     category: "Macro",
     myPosition: { outcome: "Cut", amount: 10000, pnl: 3200 },
+    oracleResolution: "On-chain Pyth oracle feeds",
+    agentPredictions: [
+      { agent: "Nexus Oracle", prediction: "Cut (75%)", confidence: 0.98 },
+      { agent: "CryptoSage", prediction: "Cut (70%)", confidence: 0.92 },
+      { agent: "MetaMind", prediction: "Hold (28%)", confidence: 0.87 },
+    ],
     priceHistory: [
       { time: "Day 1", yes: 0.65, no: 0.35 },
       { time: "Day 2", yes: 0.68, no: 0.32 },
@@ -171,7 +227,7 @@ export const predictionMarkets: PredictionMarket[] = [
   {
     id: "pm-5",
     title: "Will SOL outperform ETH in next 30 days?",
-    description: "Relative performance prediction between Solana and Ethereum.",
+    description: "Relative performance prediction between Solana and Ethereum, resolved on-chain.",
     outcomes: [
       { name: "SOL Wins", probability: 0.55 },
       { name: "ETH Wins", probability: 0.45 },
@@ -181,6 +237,11 @@ export const predictionMarkets: PredictionMarket[] = [
     participants: 7823,
     status: "active",
     category: "Crypto Price",
+    oracleResolution: "On-chain Pyth oracle feeds",
+    agentPredictions: [
+      { agent: "Nexus Oracle", prediction: "SOL Wins (52%)", confidence: 0.96 },
+      { agent: "Arbitrex", prediction: "SOL Wins (58%)", confidence: 0.89 },
+    ],
     priceHistory: [
       { time: "Day 1", yes: 0.50, no: 0.50 },
       { time: "Day 2", yes: 0.52, no: 0.48 },
@@ -193,8 +254,8 @@ export const predictionMarkets: PredictionMarket[] = [
   },
   {
     id: "pm-6",
-    title: "Will Uniswap v4 launch on Initia by Q3 2025?",
-    description: "DeFi protocol deployment prediction.",
+    title: "Will Wormhole V2 process >$5B by Q3 2025?",
+    description: "Cross-chain bridge volume prediction for Solana ecosystem.",
     outcomes: [
       { name: "Yes", probability: 0.28 },
       { name: "No", probability: 0.72 },
@@ -204,11 +265,21 @@ export const predictionMarkets: PredictionMarket[] = [
     participants: 2134,
     status: "active",
     category: "DeFi",
+    oracleResolution: "On-chain Switchboard oracle feeds",
+    priceHistory: [
+      { time: "Day 1", yes: 0.32, no: 0.68 },
+      { time: "Day 2", yes: 0.30, no: 0.70 },
+      { time: "Day 3", yes: 0.31, no: 0.69 },
+      { time: "Day 4", yes: 0.29, no: 0.71 },
+      { time: "Day 5", yes: 0.28, no: 0.72 },
+      { time: "Day 6", yes: 0.27, no: 0.73 },
+      { time: "Day 7", yes: 0.28, no: 0.72 },
+    ],
   },
   {
     id: "pm-7",
     title: "Will AI agents manage >$1B in DeFi by EOY 2025?",
-    description: "Autonomous agent TVL prediction across all chains.",
+    description: "Autonomous agent TVL prediction across all chains, tracked on Solana.",
     outcomes: [
       { name: "Yes", probability: 0.47 },
       { name: "No", probability: 0.53 },
@@ -219,6 +290,11 @@ export const predictionMarkets: PredictionMarket[] = [
     status: "active",
     category: "AI / DeFi",
     myPosition: { outcome: "Yes", amount: 8000, pnl: -1200 },
+    oracleResolution: "Multi-oracle consensus (Pyth + Switchboard)",
+    agentPredictions: [
+      { agent: "Veritas", prediction: "Yes (50%)", confidence: 0.88 },
+      { agent: "TruthEngine", prediction: "No (55%)", confidence: 0.94 },
+    ],
     priceHistory: [
       { time: "Day 1", yes: 0.52, no: 0.48 },
       { time: "Day 2", yes: 0.50, no: 0.50 },
@@ -232,7 +308,7 @@ export const predictionMarkets: PredictionMarket[] = [
   {
     id: "pm-8",
     title: "Did BTC dominance stay above 55% in Q1 2025?",
-    description: "Resolved market — BTC dominance tracker.",
+    description: "Resolved market — BTC dominance tracker. Resolved via on-chain Switchboard oracle.",
     outcomes: [
       { name: "Yes", probability: 1.0 },
       { name: "No", probability: 0.0 },
@@ -243,6 +319,7 @@ export const predictionMarkets: PredictionMarket[] = [
     status: "resolved",
     category: "Crypto Price",
     myPosition: { outcome: "Yes", amount: 15000, pnl: 4500 },
+    oracleResolution: "Resolved ✓ — Switchboard Oracle confirmed",
     priceHistory: [
       { time: "Day 1", yes: 0.60, no: 0.40 },
       { time: "Day 2", yes: 0.62, no: 0.38 },
@@ -255,8 +332,8 @@ export const predictionMarkets: PredictionMarket[] = [
   },
   {
     id: "pm-9",
-    title: "Will stETH depeg exceed 2% in 2025?",
-    description: "Lido stETH depeg risk prediction.",
+    title: "Will stSOL depeg exceed 2% in 2025?",
+    description: "Lido stSOL depeg risk prediction on Solana.",
     outcomes: [
       { name: "Yes", probability: 0.12 },
       { name: "No", probability: 0.88 },
@@ -266,11 +343,21 @@ export const predictionMarkets: PredictionMarket[] = [
     participants: 4521,
     status: "active",
     category: "DeFi",
+    oracleResolution: "On-chain Pyth oracle feeds",
+    priceHistory: [
+      { time: "Day 1", yes: 0.15, no: 0.85 },
+      { time: "Day 2", yes: 0.14, no: 0.86 },
+      { time: "Day 3", yes: 0.13, no: 0.87 },
+      { time: "Day 4", yes: 0.12, no: 0.88 },
+      { time: "Day 5", yes: 0.13, no: 0.87 },
+      { time: "Day 6", yes: 0.12, no: 0.88 },
+      { time: "Day 7", yes: 0.12, no: 0.88 },
+    ],
   },
   {
     id: "pm-10",
-    title: "Will a major L2 suffer a chain halt in 2025?",
-    description: "L2 network reliability prediction.",
+    title: "Will a major Solana DEX suffer an exploit in 2025?",
+    description: "Solana DEX security prediction monitored by agent swarm.",
     outcomes: [
       { name: "Yes", probability: 0.34 },
       { name: "No", probability: 0.66 },
@@ -281,6 +368,16 @@ export const predictionMarkets: PredictionMarket[] = [
     status: "active",
     category: "Infrastructure",
     myPosition: { outcome: "No", amount: 2000, pnl: 680 },
+    oracleResolution: "Agent consensus + on-chain verification",
+    priceHistory: [
+      { time: "Day 1", yes: 0.38, no: 0.62 },
+      { time: "Day 2", yes: 0.36, no: 0.64 },
+      { time: "Day 3", yes: 0.37, no: 0.63 },
+      { time: "Day 4", yes: 0.35, no: 0.65 },
+      { time: "Day 5", yes: 0.34, no: 0.66 },
+      { time: "Day 6", yes: 0.35, no: 0.65 },
+      { time: "Day 7", yes: 0.34, no: 0.66 },
+    ],
   },
 ];
 
@@ -291,7 +388,7 @@ export const vaults: Vault[] = [
     name: "Conservative Alpha",
     strategy: "Conservative",
     description:
-      "Low-risk stablecoin yield with AI-optimized allocation across blue-chip DeFi protocols. Focuses on capital preservation with steady returns.",
+      "Low-risk stablecoin yield with AI-optimized allocation across blue-chip Solana DeFi protocols. Focuses on capital preservation with steady returns.",
     tvl: 45200000,
     returns24h: 0.04,
     returns7d: 0.28,
@@ -301,8 +398,8 @@ export const vaults: Vault[] = [
     assetAllocation: [
       { name: "USDC", value: 45, color: "#06B6D4" },
       { name: "USDT", value: 25, color: "#8B5CF6" },
-      { name: "DAI", value: 20, color: "#10B981" },
-      { name: "INIT", value: 10, color: "#F59E0B" },
+      { name: "blSOL", value: 20, color: "#10B981" },
+      { name: "SOL", value: 10, color: "#F59E0B" },
     ],
     performanceHistory: [
       { date: "Jan", value: 100 },
@@ -315,10 +412,10 @@ export const vaults: Vault[] = [
     ],
     rebalanceHistory: [
       { date: "2025-03-15", from: "USDT", to: "USDC", amount: 2500000 },
-      { date: "2025-03-28", from: "INIT", to: "DAI", amount: 800000 },
-      { date: "2025-04-10", from: "DAI", to: "USDC", amount: 1200000 },
-      { date: "2025-04-22", from: "USDC", to: "INIT", amount: 500000 },
-      { date: "2025-05-05", from: "USDT", to: "DAI", amount: 1800000 },
+      { date: "2025-03-28", from: "SOL", to: "blSOL", amount: 800000 },
+      { date: "2025-04-10", from: "blSOL", to: "USDC", amount: 1200000 },
+      { date: "2025-04-22", from: "USDC", to: "SOL", amount: 500000 },
+      { date: "2025-05-05", from: "USDT", to: "blSOL", amount: 1800000 },
     ],
   },
   {
@@ -326,7 +423,7 @@ export const vaults: Vault[] = [
     name: "Balanced Growth",
     strategy: "Balanced",
     description:
-      "Mixed asset strategy balancing crypto exposure with stable yields. AI agents dynamically adjust between volatile and stable assets based on market conditions.",
+      "Mixed asset strategy balancing crypto exposure with stable yields on Solana. AI agents dynamically adjust between volatile and stable assets based on market conditions.",
     tvl: 78900000,
     returns24h: 0.32,
     returns7d: 2.15,
@@ -334,11 +431,11 @@ export const vaults: Vault[] = [
     riskScore: 5,
     agentCount: 6,
     assetAllocation: [
-      { name: "INIT", value: 30, color: "#06B6D4" },
+      { name: "SOL", value: 30, color: "#06B6D4" },
       { name: "BTC", value: 25, color: "#F59E0B" },
       { name: "ETH", value: 20, color: "#8B5CF6" },
       { name: "USDC", value: 15, color: "#10B981" },
-      { name: "SOL", value: 10, color: "#EF4444" },
+      { name: "JTO", value: 10, color: "#EF4444" },
     ],
     performanceHistory: [
       { date: "Jan", value: 100 },
@@ -352,9 +449,9 @@ export const vaults: Vault[] = [
     rebalanceHistory: [
       { date: "2025-03-12", from: "BTC", to: "USDC", amount: 5000000 },
       { date: "2025-03-25", from: "USDC", to: "ETH", amount: 3200000 },
-      { date: "2025-04-08", from: "ETH", to: "INIT", amount: 4500000 },
-      { date: "2025-04-20", from: "INIT", to: "BTC", amount: 2800000 },
-      { date: "2025-05-03", from: "SOL", to: "USDC", amount: 1500000 },
+      { date: "2025-04-08", from: "ETH", to: "SOL", amount: 4500000 },
+      { date: "2025-04-20", from: "SOL", to: "BTC", amount: 2800000 },
+      { date: "2025-05-03", from: "JTO", to: "USDC", amount: 1500000 },
       { date: "2025-05-15", from: "USDC", to: "BTC", amount: 3800000 },
     ],
   },
@@ -363,7 +460,7 @@ export const vaults: Vault[] = [
     name: "Aggressive Swarm",
     strategy: "Aggressive",
     description:
-      "Maximum yield strategy leveraging AI swarm intelligence for aggressive market-making and arbitrage across multiple DEXs. Higher risk, higher reward.",
+      "Maximum yield strategy leveraging AI swarm intelligence for aggressive market-making and arbitrage across Solana DEXs (Jupiter, Raydium, Orca). Higher risk, higher reward.",
     tvl: 34500000,
     returns24h: 0.89,
     returns7d: 5.43,
@@ -371,10 +468,10 @@ export const vaults: Vault[] = [
     riskScore: 8,
     agentCount: 12,
     assetAllocation: [
-      { name: "INIT", value: 35, color: "#06B6D4" },
+      { name: "SOL", value: 35, color: "#06B6D4" },
       { name: "BTC", value: 20, color: "#F59E0B" },
       { name: "ETH", value: 15, color: "#8B5CF6" },
-      { name: "Various L2s", value: 20, color: "#10B981" },
+      { name: "Solana DeFi", value: 20, color: "#10B981" },
       { name: "Memecoins", value: 10, color: "#EF4444" },
     ],
     performanceHistory: [
@@ -388,17 +485,17 @@ export const vaults: Vault[] = [
     ],
     rebalanceHistory: [
       { date: "2025-03-10", from: "Memecoins", to: "BTC", amount: 2000000 },
-      { date: "2025-03-18", from: "BTC", to: "Various L2s", amount: 3500000 },
-      { date: "2025-04-01", from: "Various L2s", to: "INIT", amount: 4200000 },
-      { date: "2025-04-15", from: "INIT", to: "Memecoins", amount: 1800000 },
+      { date: "2025-03-18", from: "BTC", to: "Solana DeFi", amount: 3500000 },
+      { date: "2025-04-01", from: "Solana DeFi", to: "SOL", amount: 4200000 },
+      { date: "2025-04-15", from: "SOL", to: "Memecoins", amount: 1800000 },
       { date: "2025-04-28", from: "Memecoins", to: "ETH", amount: 2500000 },
-      { date: "2025-05-10", from: "ETH", to: "Various L2s", amount: 3000000 },
-      { date: "2025-05-22", from: "Various L2s", to: "BTC", amount: 2200000 },
+      { date: "2025-05-10", from: "ETH", to: "Solana DeFi", amount: 3000000 },
+      { date: "2025-05-22", from: "Solana DeFi", to: "BTC", amount: 2200000 },
     ],
   },
 ];
 
-// ---- Agents ----
+// ---- Agents (with reputation tiers, identity tokens, staking) ----
 export const agents: Agent[] = [
   {
     id: "ag-1",
@@ -409,11 +506,14 @@ export const agents: Agent[] = [
     uptime: 99.9,
     decisions24h: 1247,
     consensusRate: 87,
+    reputationTier: "Platinum",
+    stakingAmount: 850,
+    identityToken: "SWRM-NEX-001",
     recentDecisions: [
       { time: "2m ago", action: "BTC Price Update", outcome: "$98,432" },
       { time: "5m ago", action: "ETH Price Update", outcome: "$3,847" },
-      { time: "8m ago", action: "SOL Price Update", outcome: "$178.23" },
-      { time: "12m ago", action: "INIT Price Update", outcome: "$2.45" },
+      { time: "8m ago", action: "SOL Price Update", outcome: "$175.42" },
+      { time: "12m ago", action: "JTO Price Update", outcome: "$3.21" },
     ],
     performanceMetrics: [
       { metric: "Avg Latency", value: "12ms" },
@@ -431,6 +531,9 @@ export const agents: Agent[] = [
     uptime: 99.7,
     decisions24h: 843,
     consensusRate: 82,
+    reputationTier: "Gold",
+    stakingAmount: 420,
+    identityToken: "SWRM-SNT-002",
     recentDecisions: [
       { time: "3m ago", action: "Risk Alert: BTC Volatility", outcome: "Medium" },
       { time: "7m ago", action: "Vault Rebalance Rec", outcome: "Approved" },
@@ -453,10 +556,13 @@ export const agents: Agent[] = [
     uptime: 99.5,
     decisions24h: 3421,
     consensusRate: 79,
+    reputationTier: "Gold",
+    stakingAmount: 350,
+    identityToken: "SWRM-ABX-003",
     recentDecisions: [
-      { time: "30s ago", action: "Place Order: BTC/USDC", outcome: "Filled" },
-      { time: "1m ago", action: "Update Spread: ETH/INIT", outcome: "0.3%" },
-      { time: "2m ago", action: "Arb: INIT-USDC", outcome: "+$2,340" },
+      { time: "30s ago", action: "Place Order: SOL/USDC", outcome: "Filled" },
+      { time: "1m ago", action: "Update Spread: ETH/SOL", outcome: "0.3%" },
+      { time: "2m ago", action: "Arb: SOL-USDC", outcome: "+$2,340" },
       { time: "3m ago", action: "LP Rebalance", outcome: "Optimal" },
     ],
     performanceMetrics: [
@@ -475,6 +581,9 @@ export const agents: Agent[] = [
     uptime: 99.8,
     decisions24h: 156,
     consensusRate: 95,
+    reputationTier: "Platinum",
+    stakingAmount: 920,
+    identityToken: "SWRM-VRT-004",
     recentDecisions: [
       { time: "1h ago", action: "Resolve: BTC Dominance Q1", outcome: "YES" },
       { time: "3h ago", action: "Verify: Chain Halt", outcome: "No Incident" },
@@ -497,6 +606,9 @@ export const agents: Agent[] = [
     uptime: 99.6,
     decisions24h: 987,
     consensusRate: 85,
+    reputationTier: "Gold",
+    stakingAmount: 280,
+    identityToken: "SWRM-CSG-005",
     recentDecisions: [
       { time: "1m ago", action: "AVAX Price Update", outcome: "$42.18" },
       { time: "4m ago", action: "DOT Price Update", outcome: "$8.92" },
@@ -519,6 +631,9 @@ export const agents: Agent[] = [
     uptime: 99.4,
     decisions24h: 623,
     consensusRate: 78,
+    reputationTier: "Silver",
+    stakingAmount: 150,
+    identityToken: "SWRM-HGD-006",
     recentDecisions: [
       { time: "5m ago", action: "Hedge Ratio Update", outcome: "0.72" },
       { time: "12m ago", action: "Drawdown Alert", outcome: "Low Risk" },
@@ -541,9 +656,12 @@ export const agents: Agent[] = [
     uptime: 98.2,
     decisions24h: 0,
     consensusRate: 74,
+    reputationTier: "Silver",
+    stakingAmount: 80,
+    identityToken: "SWRM-LQF-007",
     recentDecisions: [
       { time: "2h ago", action: "Standby Mode", outcome: "Low Liquidity" },
-      { time: "4h ago", action: "Withdraw from INIT-USDC", outcome: "$450K" },
+      { time: "4h ago", action: "Withdraw from SOL-USDC", outcome: "$450K" },
       { time: "6h ago", action: "Reduce Exposure", outcome: "Completed" },
     ],
     performanceMetrics: [
@@ -562,10 +680,13 @@ export const agents: Agent[] = [
     uptime: 99.8,
     decisions24h: 1523,
     consensusRate: 88,
+    reputationTier: "Platinum",
+    stakingAmount: 750,
+    identityToken: "SWRM-MTM-008",
     recentDecisions: [
       { time: "30s ago", action: "Multi-chain Price", outcome: "24 chains" },
       { time: "2m ago", action: "Cross-chain Arb Signal", outcome: "0.4% diff" },
-      { time: "5m ago", action: "Gas Oracle Update", outcome: "23 gwei avg" },
+      { time: "5m ago", action: "Priority Fee Oracle", outcome: "0.000045 SOL" },
     ],
     performanceMetrics: [
       { metric: "Avg Latency", value: "8ms" },
@@ -583,6 +704,9 @@ export const agents: Agent[] = [
     uptime: 99.3,
     decisions24h: 512,
     consensusRate: 81,
+    reputationTier: "Silver",
+    stakingAmount: 120,
+    identityToken: "SWRM-AGS-009",
     recentDecisions: [
       { time: "8m ago", action: "Smart Contract Audit", outcome: "Safe" },
       { time: "20m ago", action: "Whale Monitor", outcome: "Normal" },
@@ -604,6 +728,9 @@ export const agents: Agent[] = [
     uptime: 97.8,
     decisions24h: 45,
     consensusRate: 92,
+    reputationTier: "Gold",
+    stakingAmount: 310,
+    identityToken: "SWRM-OPR-010",
     recentDecisions: [
       { time: "30m ago", action: "System Update", outcome: "In Progress" },
       { time: "1h ago", action: "Model Retrain", outcome: "92% accuracy" },
@@ -625,6 +752,9 @@ export const agents: Agent[] = [
     uptime: 99.1,
     decisions24h: 2890,
     consensusRate: 76,
+    reputationTier: "Silver",
+    stakingAmount: 95,
+    identityToken: "SWRM-DPS-011",
     recentDecisions: [
       { time: "45s ago", action: "Order: SOL/USDC", outcome: "Filled" },
       { time: "2m ago", action: "Inventory Check", outcome: "Balanced" },
@@ -646,6 +776,9 @@ export const agents: Agent[] = [
     uptime: 99.9,
     decisions24h: 189,
     consensusRate: 94,
+    reputationTier: "Platinum",
+    stakingAmount: 680,
+    identityToken: "SWRM-TRE-012",
     recentDecisions: [
       { time: "45m ago", action: "Resolve: Fed Rate", outcome: "Pending" },
       { time: "2h ago", action: "Cross-verify", outcome: "3/3 oracles agree" },
@@ -663,24 +796,24 @@ export const agents: Agent[] = [
 // ---- Transactions ----
 export const transactions: Transaction[] = [
   { id: "tx-1", type: "trade", description: "Buy YES — Will BTC reach $100K?", amount: 5000, token: "USDC", timestamp: "2 min ago", status: "confirmed" },
-  { id: "tx-2", type: "reward", description: "Vault Yield — Balanced Growth", amount: 342.5, token: "INIT", timestamp: "15 min ago", status: "confirmed" },
+  { id: "tx-2", type: "reward", description: "Vault Yield — Balanced Growth", amount: 342.5, token: "SOL", timestamp: "15 min ago", status: "confirmed" },
   { id: "tx-3", type: "deposit", description: "Deposit to Conservative Alpha", amount: 25000, token: "USDC", timestamp: "1 hour ago", status: "confirmed" },
   { id: "tx-4", type: "trade", description: "Buy NO — ETH flip BTC?", amount: 3000, token: "USDC", timestamp: "2 hours ago", status: "confirmed" },
-  { id: "tx-5", type: "withdraw", description: "Withdraw from Aggressive Swarm", amount: 15000, token: "USDC", timestamp: "3 hours ago", status: "confirmed" },
-  { id: "tx-6", type: "market_create", description: "Create Market: AI Agent TVL", amount: 1000, token: "INIT", timestamp: "5 hours ago", status: "confirmed" },
+  { id: "tx-5", type: "withdraw", description: "Withdraw from Aggressive Swarm", amount: 15000, token: "SOL", timestamp: "3 hours ago", status: "confirmed" },
+  { id: "tx-6", type: "market_create", description: "Create Market: AI Agent TVL", amount: 1000, token: "SOL", timestamp: "5 hours ago", status: "confirmed" },
   { id: "tx-7", type: "trade", description: "Buy YES — Fed rate cut?", amount: 10000, token: "USDC", timestamp: "6 hours ago", status: "confirmed" },
   { id: "tx-8", type: "reward", description: "Prediction Payout — BTC Dominance", amount: 4500, token: "USDC", timestamp: "8 hours ago", status: "confirmed" },
-  { id: "tx-9", type: "deposit", description: "Deposit to Balanced Growth", amount: 50000, token: "INIT", timestamp: "12 hours ago", status: "confirmed" },
+  { id: "tx-9", type: "deposit", description: "Deposit to Balanced Growth", amount: 50000, token: "SOL", timestamp: "12 hours ago", status: "confirmed" },
   { id: "tx-10", type: "trade", description: "Buy YES — AI agents manage $1B?", amount: 8000, token: "USDC", timestamp: "1 day ago", status: "confirmed" },
-  { id: "tx-11", type: "withdraw", description: "Withdraw from Conservative Alpha", amount: 5000, token: "USDC", timestamp: "1 day ago", status: "confirmed" },
-  { id: "tx-12", type: "reward", description: "Agent Staking Reward", amount: 127.8, token: "INIT", timestamp: "1 day ago", status: "confirmed" },
-  { id: "tx-13", type: "trade", description: "Buy NO — stETH depeg?", amount: 2000, token: "USDC", timestamp: "2 days ago", status: "confirmed" },
+  { id: "tx-11", type: "withdraw", description: "Withdraw from Conservative Alpha", amount: 5000, token: "SOL", timestamp: "1 day ago", status: "confirmed" },
+  { id: "tx-12", type: "reward", description: "Agent Staking Reward", amount: 127.8, token: "SOL", timestamp: "1 day ago", status: "confirmed" },
+  { id: "tx-13", type: "trade", description: "Buy NO — stSOL depeg?", amount: 2000, token: "USDC", timestamp: "2 days ago", status: "confirmed" },
   { id: "tx-14", type: "deposit", description: "Deposit to Aggressive Swarm", amount: 100000, token: "USDC", timestamp: "2 days ago", status: "confirmed" },
-  { id: "tx-15", type: "trade", description: "Buy YES — Initia TVL $500M?", amount: 7000, token: "USDC", timestamp: "3 days ago", status: "confirmed" },
-  { id: "tx-16", type: "market_create", description: "Create Market: L2 Chain Halt", amount: 500, token: "INIT", timestamp: "3 days ago", status: "confirmed" },
-  { id: "tx-17", type: "reward", description: "Vault Yield — Conservative Alpha", amount: 89.2, token: "INIT", timestamp: "3 days ago", status: "confirmed" },
+  { id: "tx-15", type: "trade", description: "Buy YES — Solana TVL $10B?", amount: 7000, token: "SOL", timestamp: "3 days ago", status: "confirmed" },
+  { id: "tx-16", type: "market_create", description: "Create Market: DEX Exploit", amount: 500, token: "SOL", timestamp: "3 days ago", status: "confirmed" },
+  { id: "tx-17", type: "reward", description: "Vault Yield — Conservative Alpha", amount: 89.2, token: "SOL", timestamp: "3 days ago", status: "confirmed" },
   { id: "tx-18", type: "trade", description: "Buy YES — SOL outperform ETH?", amount: 4500, token: "USDC", timestamp: "4 days ago", status: "confirmed" },
-  { id: "tx-19", type: "withdraw", description: "Withdraw from Balanced Growth", amount: 20000, token: "INIT", timestamp: "5 days ago", status: "confirmed" },
+  { id: "tx-19", type: "withdraw", description: "Withdraw from Balanced Growth", amount: 20000, token: "SOL", timestamp: "5 days ago", status: "confirmed" },
   { id: "tx-20", type: "deposit", description: "Deposit to Conservative Alpha", amount: 75000, token: "USDC", timestamp: "7 days ago", status: "confirmed" },
 ];
 
@@ -725,16 +858,16 @@ export interface StigmergySignal {
 export const stigmergyFeed: StigmergySignal[] = [
   { id: "sig-1", agentId: "ag-1", agentName: "Nexus Oracle", type: "pheromone", message: "BTC volatility increasing — signal broadcast to risk agents", timestamp: "30s ago", strength: 0.87 },
   { id: "sig-2", agentId: "ag-2", agentName: "Sentinel Risk", type: "alert", message: "Elevated risk score for crypto portfolio — recommending hedge", timestamp: "1m ago", strength: 0.92 },
-  { id: "sig-3", agentId: "ag-3", agentName: "Arbitrex", type: "consensus", message: "Arbitrage opportunity confirmed — 3 agents agree on INIT-USDC spread", timestamp: "2m ago", strength: 0.78 },
-  { id: "sig-4", agentId: "ag-5", agentName: "CryptoSage", type: "pheromone", message: "AVAX price deviation detected — cross-checking with MetaMind", timestamp: "3m ago", strength: 0.65 },
-  { id: "sig-5", agentId: "ag-8", agentName: "MetaMind", type: "pheromone", message: "Multi-chain consensus: All price feeds within 0.01% tolerance", timestamp: "4m ago", strength: 0.95 },
+  { id: "sig-3", agentId: "ag-3", agentName: "Arbitrex", type: "consensus", message: "Arbitrage opportunity confirmed — 3 agents agree on SOL-USDC spread", timestamp: "2m ago", strength: 0.78 },
+  { id: "sig-4", agentId: "ag-5", agentName: "CryptoSage", type: "pheromone", message: "JTO price deviation detected — cross-checking with MetaMind", timestamp: "3m ago", strength: 0.65 },
+  { id: "sig-5", agentId: "ag-8", agentName: "MetaMind", type: "pheromone", message: "Multi-chain consensus: All Solana price feeds within 0.01% tolerance", timestamp: "4m ago", strength: 0.95 },
   { id: "sig-6", agentId: "ag-6", agentName: "HedgeGuard", type: "rebalance", message: "Auto-rebalance triggered: Reduce BTC exposure by 5%, increase USDC allocation", timestamp: "5m ago", strength: 0.71 },
   { id: "sig-7", agentId: "ag-4", agentName: "Veritas", type: "consensus", message: "Market #pm-8 resolution verified — 5/5 oracles concur", timestamp: "8m ago", strength: 0.98 },
   { id: "sig-8", agentId: "ag-11", agentName: "DepthSeeker", type: "pheromone", message: "SOL-USDC depth improving — widening spread to 0.12%", timestamp: "10m ago", strength: 0.54 },
-  { id: "sig-9", agentId: "ag-9", agentName: "Aegis", type: "alert", message: "Unusual whale activity on INIT-USDC pair — monitoring", timestamp: "15m ago", strength: 0.73 },
+  { id: "sig-9", agentId: "ag-9", agentName: "Aegis", type: "alert", message: "Unusual whale activity on SOL-USDC pair — monitoring", timestamp: "15m ago", strength: 0.73 },
   { id: "sig-10", agentId: "ag-12", agentName: "TruthEngine", type: "consensus", message: "Fed rate market resolution data collected — 82% confidence", timestamp: "20m ago", strength: 0.82 },
-  { id: "sig-11", agentId: "ag-3", agentName: "Arbitrex", type: "rebalance", message: "Liquidity pool rebalance: ETH/INIT pair optimized", timestamp: "25m ago", strength: 0.61 },
-  { id: "sig-12", agentId: "ag-1", agentName: "Nexus Oracle", type: "pheromone", message: "ETH gas fees stabilizing — signal strength normalizing", timestamp: "30m ago", strength: 0.45 },
+  { id: "sig-11", agentId: "ag-3", agentName: "Arbitrex", type: "rebalance", message: "Liquidity pool rebalance: ETH/SOL pair optimized on Jupiter", timestamp: "25m ago", strength: 0.61 },
+  { id: "sig-12", agentId: "ag-1", agentName: "Nexus Oracle", type: "pheromone", message: "Solana priority fees stabilizing — signal strength normalizing", timestamp: "30m ago", strength: 0.45 },
 ];
 
 // ---- Stats for Landing ----
@@ -747,10 +880,18 @@ export const platformStats = {
   totalVolume: 89_400_000,
 };
 
+// ---- Agent Consensus Metrics ----
+export const agentConsensusMetrics = {
+  avgConsensusRate: 84.2,
+  totalStigmergySignals: 3421,
+  coordinationEvents24h: 296,
+  swarmEfficiency: 91.7,
+};
+
 // ---- Dashboard overview ----
 export const dashboardOverview = {
   portfolioValue: 247_890,
   activePositions: 6,
-  pendingRewards: 1_892.5,
+  pendingRewards: 142.5, // SOL
   agentHealthScore: 94.2,
 };

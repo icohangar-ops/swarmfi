@@ -1,80 +1,122 @@
 "use client";
 
-import React, { createContext, useContext, useState, useCallback, type ReactNode } from "react";
+import React, { createContext, useContext, useState, useCallback, useEffect, useMemo, type ReactNode } from "react";
+import { useWallet } from "@solana/wallet-adapter-react";
+import { PhantomWalletName } from "@solana/wallet-adapter-wallets";
+import { Connection, clusterApiUrl, PublicKey, LAMPORTS_PER_SOL } from "@solana/web3.js";
 
 interface WalletContextType {
   isConnected: boolean;
   address: string;
-  initiaAddress: string;
-  username: string | null;
-  connect: () => void;
-  disconnect: () => void;
+  publicKey: PublicKey | null;
+  connect: () => Promise<void>;
+  disconnect: () => Promise<void>;
   openWallet: () => void;
+  solBalance: number;
+  cluster: "devnet" | "mainnet-beta";
+  setCluster: (cluster: "devnet" | "mainnet-beta") => void;
+  connection: Connection;
 }
 
 const WalletContext = createContext<WalletContextType>({
   isConnected: false,
   address: "",
-  initiaAddress: "",
-  username: null,
-  connect: () => {},
-  disconnect: () => {},
+  publicKey: null,
+  connect: async () => {},
+  disconnect: async () => {},
   openWallet: () => {},
+  solBalance: 0,
+  cluster: "devnet",
+  setCluster: () => {},
+  connection: new Connection(clusterApiUrl("devnet")),
 });
 
-export function WalletProvider({ children }: { children: ReactNode }) {
-  const [isConnected, setIsConnected] = useState(false);
-  const [address, setAddress] = useState("");
-  const [initiaAddress, setInitiaAddress] = useState("");
-  const [username, setUsername] = useState<string | null>(null);
+export function SwarmWalletProvider({ children }: { children: ReactNode }) {
+  const wallet = useWallet();
+  const [solBalance, setSolBalance] = useState(0);
+  const [cluster, setCluster] = useState<"devnet" | "mainnet-beta">("devnet");
 
-  const connect = useCallback(() => {
-    // Demo wallet — simulate connecting
-    const demoAddr = "initia1q...x7k2m";
-    const demoHex = "0x742d35Cc6634C0532925a3b844Bc9e7595f2bD18";
-    setIsConnected(true);
-    setAddress(demoHex);
-    setInitiaAddress(demoAddr);
-    setUsername("swarmfi_demo");
-  }, []);
+  const connection = useMemo(
+    () => new Connection(clusterApiUrl(cluster)),
+    [cluster]
+  );
 
-  const disconnect = useCallback(() => {
-    setIsConnected(false);
-    setAddress("");
-    setInitiaAddress("");
-    setUsername(null);
-  }, []);
+  const address = wallet.publicKey?.toBase58() ?? "";
+
+  // Fetch SOL balance when connected
+  useEffect(() => {
+    if (wallet.publicKey && connection) {
+      connection
+        .getBalance(wallet.publicKey)
+        .then((bal) => setSolBalance(bal / LAMPORTS_PER_SOL))
+        .catch(() => setSolBalance(0));
+    } else {
+      setSolBalance(0);
+    }
+  }, [wallet.publicKey, connection, wallet.connected]);
+
+  const connect = useCallback(async () => {
+    try {
+      await wallet.connect();
+    } catch (err) {
+      console.error("Wallet connection failed:", err);
+    }
+  }, [wallet]);
+
+  const disconnect = useCallback(async () => {
+    try {
+      await wallet.disconnect();
+    } catch (err) {
+      console.error("Wallet disconnect failed:", err);
+    }
+  }, [wallet]);
 
   const openWallet = useCallback(() => {
-    // In production this opens the InterwovenKit wallet modal
-    if (!isConnected) connect();
-  }, [isConnected, connect]);
+    if (!wallet.connected) {
+      connect();
+    } else {
+      wallet.select?.(PhantomWalletName);
+    }
+  }, [wallet, connect]);
 
   return (
     <WalletContext.Provider
-      value={{ isConnected, address, initiaAddress, username, connect, disconnect, openWallet }}
+      value={{
+        isConnected: wallet.connected,
+        address,
+        publicKey: wallet.publicKey ?? null,
+        connect,
+        disconnect,
+        openWallet,
+        solBalance,
+        cluster,
+        setCluster,
+        connection,
+      }}
     >
       {children}
     </WalletContext.Provider>
   );
 }
 
-export function useInitiaWallet() {
+export function useSolanaWallet() {
   const ctx = useContext(WalletContext);
-  if (!ctx) throw new Error("useInitiaWallet must be used within WalletProvider");
+  if (!ctx) throw new Error("useSolanaWallet must be used within WalletProvider");
   return ctx;
 }
 
-export function useInitiaAddress() {
-  const { initiaAddress } = useInitiaWallet();
-  return initiaAddress;
+export function useSolanaAddress() {
+  const { address } = useSolanaWallet();
+  return address;
 }
 
 export function useBalance() {
-  // Demo balance
+  const { solBalance } = useSolanaWallet();
+  // Approximate USD value
+  const solPrice = 175.42; // Mock price
   return {
-    balance: "24,789.45",
-    symbol: "INIT",
-    usdValue: "60,736.17",
+    balance: solBalance.toFixed(4),
+    symbol: "SOL",
+    usdValue: (solBalance * solPrice).toFixed(2),
   };
 }

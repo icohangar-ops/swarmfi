@@ -2,7 +2,7 @@
 
 import React from "react";
 import Link from "next/link";
-import { useInitiaWallet } from "@/lib/wallet";
+import { useSolanaWallet } from "@/lib/wallet";
 import SwarmVisualization from "@/components/SwarmVisualization";
 import {
   platformStats,
@@ -27,7 +27,7 @@ function formatNumber(n: number): string {
 }
 
 export default function LandingPage() {
-  const { isConnected, connect } = useInitiaWallet();
+  const { isConnected, connect } = useSolanaWallet();
 
   return (
     <div className="relative overflow-hidden">
@@ -39,7 +39,7 @@ export default function LandingPage() {
           <div className="animate-fade-in-up opacity-0">
             <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full border border-cyan-500/30 bg-cyan-500/10 text-cyan-400 text-sm mb-8">
               <Zap className="w-3.5 h-3.5" />
-              INITIATE Hackathon — Initia Blockchain
+              Colosseum Frontier Hackathon — Solana
             </div>
           </div>
 
@@ -53,7 +53,7 @@ export default function LandingPage() {
 
           <p className="animate-fade-in-up opacity-0 animate-delay-200 text-lg sm:text-xl text-slate-400 max-w-2xl mx-auto mb-10">
             Decentralized AI agents coordinate through stigmergy to power
-            prediction markets, real-time oracles, and auto-rebalancing vaults — all on Initia.
+            prediction markets, real-time oracles, and auto-rebalancing vaults — all on Solana.
           </p>
 
           <div className="animate-fade-in-up opacity-0 animate-delay-300 flex flex-col sm:flex-row items-center justify-center gap-4">
@@ -63,7 +63,7 @@ export default function LandingPage() {
                 className="px-8 py-3.5 rounded-xl bg-gradient-to-r from-cyan-500 to-purple-500 text-white font-semibold text-lg hover:from-cyan-400 hover:to-purple-400 transition-all shadow-xl shadow-cyan-500/20 flex items-center gap-2"
               >
                 <Zap className="w-5 h-5" />
-                Connect Wallet
+                Connect Phantom Wallet
               </button>
             ) : (
               <Link
@@ -126,7 +126,7 @@ export default function LandingPage() {
             <h2 className="text-3xl sm:text-4xl font-bold mb-4">
               Powered by{" "}
               <span className="bg-gradient-to-r from-cyan-400 to-purple-400 bg-clip-text text-transparent">
-                Swarm Intelligence
+                Solana + Anchor
               </span>
             </h2>
             <p className="text-slate-400 max-w-xl mx-auto">
@@ -141,7 +141,7 @@ export default function LandingPage() {
                 icon: Brain,
                 title: "AI-Powered Oracles",
                 description:
-                  "Swarm of AI agents aggregates data from 23+ sources in real-time, achieving 94%+ accuracy with sub-20ms latency.",
+                  "Swarm of AI agents aggregates data from 23+ sources in real-time, achieving 94%+ accuracy with sub-20ms latency on Solana.",
                 gradient: "from-cyan-500 to-blue-500",
                 glow: "glow-cyan",
               },
@@ -157,7 +157,7 @@ export default function LandingPage() {
                 icon: Shield,
                 title: "Auto-Rebalancing Vaults",
                 description:
-                  "Vault strategies managed by agent swarms that continuously monitor risk and optimize yields across DeFi protocols.",
+                  "Vault strategies managed by agent swarms that continuously monitor risk and optimize yields across Solana DeFi protocols.",
                 gradient: "from-green-500 to-emerald-500",
                 glow: "glow-cyan",
               },
@@ -194,12 +194,12 @@ export default function LandingPage() {
               {
                 step: "01",
                 title: "Agent Network",
-                description: "12+ specialized AI agents form a decentralized intelligence network",
+                description: "12+ specialized AI agents form a decentralized intelligence network on Solana",
               },
               {
                 step: "02",
                 title: "Stigmergy Signals",
-                description: "Agents communicate through pheromone-like signals on-chain",
+                description: "Agents communicate through pheromone-like signals on-chain via Anchor programs",
               },
               {
                 step: "03",
@@ -230,8 +230,8 @@ export default function LandingPage() {
             Ready to Join the Swarm?
           </h2>
           <p className="text-slate-400 mb-8 max-w-md mx-auto">
-            Connect your wallet and start participating in AI-powered prediction markets
-            and auto-rebalancing vaults.
+            Connect your Phantom wallet and start participating in AI-powered prediction markets
+            and auto-rebalancing vaults on Solana.
           </p>
           {!isConnected ? (
             <button

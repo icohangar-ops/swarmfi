@@ -2,19 +2,18 @@
 
 import React, { useState } from "react";
 import Sidebar from "@/components/layout/Sidebar";
-import { useInitiaWallet, useBalance } from "@/lib/wallet";
+import { useSolanaWallet } from "@/lib/wallet";
 import {
   User,
   Wallet,
   Bell,
   Sliders,
-  ExternalLink,
-  AtSign,
+  Shield,
+  Server,
 } from "lucide-react";
 
 export default function SettingsPage() {
-  const { isConnected, address, initiaAddress, username, connect, disconnect } = useInitiaWallet();
-  const balance = useBalance();
+  const { isConnected, address, solBalance, cluster, setCluster, connect, disconnect } = useSolanaWallet();
   const [riskTolerance, setRiskTolerance] = useState(5);
   const [notifications, setNotifications] = useState({
     marketResolution: true,
@@ -23,6 +22,10 @@ export default function SettingsPage() {
     priceAlerts: false,
     weeklyReport: true,
   });
+
+  const truncatedAddress = address
+    ? `${address.slice(0, 6)}...${address.slice(-6)}`
+    : "";
 
   const riskLabel = (v: number) => {
     if (v <= 3) return "Conservative";
@@ -46,42 +49,42 @@ export default function SettingsPage() {
           <div className="mb-8">
             <h1 className="text-2xl font-bold text-white">Settings</h1>
             <p className="text-slate-400 text-sm mt-1">
-              Manage your account, wallet, and preferences
+              Manage your wallet, cluster, and agent preferences
             </p>
           </div>
 
-          {/* .init Username */}
+          {/* Solana Cluster Selection */}
           <div className="glass-card p-6 mb-6">
             <div className="flex items-center gap-3 mb-4">
               <div className="w-10 h-10 rounded-xl bg-cyan-500/10 flex items-center justify-center">
-                <AtSign className="w-5 h-5 text-cyan-400" />
+                <Server className="w-5 h-5 text-cyan-400" />
               </div>
               <div>
-                <h2 className="text-lg font-bold text-white">.init Username</h2>
-                <p className="text-sm text-slate-400">Your Initia identity</p>
+                <h2 className="text-lg font-bold text-white">Solana Cluster</h2>
+                <p className="text-sm text-slate-400">Select your network</p>
               </div>
             </div>
-            {isConnected && username ? (
-              <div className="bg-slate-800/50 rounded-lg p-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <div className="text-lg font-semibold text-cyan-400">{username}.init</div>
-                    <div className="text-xs text-slate-400 mt-1">Registered on Initia Name Service</div>
-                  </div>
-                  <ExternalLink className="w-4 h-4 text-slate-400" />
-                </div>
-              </div>
-            ) : (
-              <div className="bg-slate-800/50 rounded-lg p-4 text-center">
-                <p className="text-sm text-slate-400 mb-3">Connect your wallet to view or register a .init username</p>
+            <div className="grid grid-cols-2 gap-3">
+              {(["devnet", "mainnet-beta"] as const).map((c) => (
                 <button
-                  onClick={connect}
-                  className="px-4 py-2 rounded-lg bg-cyan-500/10 text-cyan-400 text-sm font-medium border border-cyan-500/30 hover:bg-cyan-500/20 transition-all"
+                  key={c}
+                  onClick={() => setCluster(c)}
+                  className={`p-4 rounded-lg text-sm font-medium transition-all border text-center ${
+                    cluster === c
+                      ? "bg-cyan-500/10 text-cyan-400 border-cyan-500/30"
+                      : "bg-slate-800/50 text-slate-300 border-border hover:border-cyan-500/30"
+                  }`}
                 >
-                  Connect Wallet
+                  <div className="font-semibold">{c === "devnet" ? "Devnet" : "Mainnet-Beta"}</div>
+                  <div className="text-xs text-muted mt-1">
+                    {c === "devnet" ? "For testing & development" : "Production network"}
+                  </div>
                 </button>
-              </div>
-            )}
+              ))}
+            </div>
+            <div className="mt-3 px-3 py-2 rounded-lg bg-slate-800/50 text-xs text-slate-400">
+              Currently connected to: <span className="text-cyan-400 font-medium">{cluster === "devnet" ? "Devnet" : "Mainnet-Beta"}</span>
+            </div>
           </div>
 
           {/* Wallet Info */}
@@ -108,16 +111,20 @@ export default function SettingsPage() {
                   <div className="flex items-center justify-between mb-2">
                     <span className="text-sm text-slate-400">Balance</span>
                     <span className="text-sm text-white font-medium">
-                      {balance.balance} {balance.symbol} <span className="text-muted">(~${balance.usdValue})</span>
+                      {solBalance.toFixed(4)} SOL <span className="text-muted">(~${(solBalance * 175.42).toFixed(2)})</span>
                     </span>
                   </div>
                   <div className="flex items-center justify-between mb-2">
-                    <span className="text-sm text-slate-400">Initia Address</span>
-                    <span className="text-xs text-slate-300 font-mono">{initiaAddress}</span>
+                    <span className="text-sm text-slate-400">Address</span>
+                    <span className="text-xs text-slate-300 font-mono">{truncatedAddress}</span>
+                  </div>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-sm text-slate-400">Full Address</span>
+                    <span className="text-xs text-slate-300 font-mono truncate max-w-[240px]">{address}</span>
                   </div>
                   <div className="flex items-center justify-between">
-                    <span className="text-sm text-slate-400">Hex Address</span>
-                    <span className="text-xs text-slate-300 font-mono truncate max-w-[180px]">{address}</span>
+                    <span className="text-sm text-slate-400">Cluster</span>
+                    <span className="text-xs text-cyan-400 font-medium">{cluster === "devnet" ? "Devnet" : "Mainnet-Beta"}</span>
                   </div>
                 </div>
                 <button
@@ -133,6 +140,53 @@ export default function SettingsPage() {
                 <button
                   onClick={connect}
                   className="px-6 py-2.5 rounded-lg bg-gradient-to-r from-cyan-500 to-purple-500 text-white text-sm font-semibold hover:from-cyan-400 hover:to-purple-400 transition-all"
+                >
+                  Connect Phantom Wallet
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Agent Registration */}
+          <div className="glass-card p-6 mb-6">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 rounded-xl bg-green-500/10 flex items-center justify-center">
+                <Shield className="w-5 h-5 text-green-400" />
+              </div>
+              <div>
+                <h2 className="text-lg font-bold text-white">Agent Registration</h2>
+                <p className="text-sm text-slate-400">Register as an AI agent operator</p>
+              </div>
+            </div>
+            {isConnected ? (
+              <div className="bg-slate-800/50 rounded-lg p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <span className="text-sm text-slate-400">Registration Status</span>
+                  <span className="text-xs px-2 py-0.5 rounded-full bg-green-400/10 text-green-400 border border-green-400/30">
+                    Registered
+                  </span>
+                </div>
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-sm text-slate-400">Agent ID</span>
+                  <span className="text-xs text-slate-300 font-mono">SWRM-OP-0042</span>
+                </div>
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-sm text-slate-400">Reputation Tier</span>
+                  <span className="text-xs px-2 py-0.5 rounded-full bg-yellow-400/10 text-yellow-400 border border-yellow-400/30">
+                    Gold
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-slate-400">Identity Token</span>
+                  <span className="text-xs text-slate-300 font-mono">SWRM-OP-0042</span>
+                </div>
+              </div>
+            ) : (
+              <div className="bg-slate-800/50 rounded-lg p-4 text-center">
+                <p className="text-sm text-slate-400 mb-3">Connect your wallet to register as an agent operator</p>
+                <button
+                  onClick={connect}
+                  className="px-4 py-2 rounded-lg bg-cyan-500/10 text-cyan-400 text-sm font-medium border border-cyan-500/30 hover:bg-cyan-500/20 transition-all"
                 >
                   Connect Wallet
                 </button>
@@ -162,10 +216,10 @@ export default function SettingsPage() {
                   weeklyReport: "Weekly Performance Report",
                 };
                 const icons: Record<string, string> = {
-                  marketResolution: "Get notified when markets resolve",
-                  vaultRebalance: "Updates on vault rebalancing events",
-                  agentAlerts: "Agent status changes and maintenance",
-                  priceAlerts: "Custom price threshold notifications",
+                  marketResolution: "Get notified when markets resolve via on-chain oracle",
+                  vaultRebalance: "Updates on vault rebalancing events on Solana",
+                  agentAlerts: "Agent status changes and maintenance windows",
+                  priceAlerts: "Custom price threshold notifications via Pyth/Switchboard",
                   weeklyReport: "Summary of portfolio performance",
                 };
                 return (

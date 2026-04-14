@@ -1,3 +1,3 @@
 "use client";
 
-export { useInitiaWallet, useInitiaAddress, useBalance, WalletProvider } from "@/lib/wallet";
+export { useSolanaWallet, useSolanaAddress, useBalance, SwarmWalletProvider as WalletProvider } from "@/lib/wallet";

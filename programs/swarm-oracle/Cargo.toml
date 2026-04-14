@@ -1,0 +1,23 @@
+[package]
+name = "swarm-oracle"
+version = "1.0.0"
+description = "SwarmFi — AI Swarm Intelligence Oracle Program on Solana"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "swarm_oracle"
+
+[features]
+no-entrypoint = []
+no-idl = []
+no-log-ix-name = []
+cpi = ["no-entrypoint"]
+default = []
+idl-build = ["anchor-lang/idl-build", "anchor-spl/idl-build"]
+
+[dependencies]
+anchor-lang = { workspace = true }
+anchor-spl = { workspace = true }
+spl-token = { workspace = true }
+spl-associated-token-account = { workspace = true }

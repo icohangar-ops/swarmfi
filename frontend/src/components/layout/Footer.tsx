@@ -18,7 +18,7 @@ export default function Footer() {
           </span>
         </div>
         <div className="flex items-center gap-6 text-sm text-muted">
-          <span>Initia Hackathon — INITIATE 2025</span>
+          <span>Solana — Colosseum Frontier Hackathon</span>
           <Link href="/" className="hover:text-cyan-400 transition-colors">
             Docs
           </Link>

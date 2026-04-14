@@ -1,0 +1,23 @@
+[workspace]
+members = [
+    "programs/swarm-oracle",
+    "programs/prediction-market",
+    "programs/reputation-registry",
+    "programs/vault-manager",
+]
+resolver = "2"
+
+[workspace.dependencies]
+anchor-lang = { version = "0.30.1", features = ["init-if-needed"] }
+anchor-spl = { version = "0.30.1" }
+spl-token = { version = "4.0.0", features = ["no-entrypoint"] }
+spl-associated-token-account = { version = "3.0.2", features = ["no-entrypoint"] }
+
+[profile.release]
+overflow-checks = true
+lto = "fat"
+codegen-units = 1
+[profile.release.build-override]
+opt-level = 3
+incremental = false
+codegen-units = 1
