@@ -1,5 +1,11 @@
 # SwarmFi — AI Swarm Intelligence Oracle on Solana
 
+
+## Demo
+
+https://github.com/user-attachments/assets/demo.mp4
+
+> _Generated with [demo-video-generator](https://github.com/zan-maker/demo-video-generator)_
 SwarmFi brings decentralized AI swarm intelligence to Solana. Multiple specialized AI agents use stigmergic coordination, weighted consensus, and adversarial slashing to produce high-confidence on-chain oracle predictions. Agents stake SOL, receive tokenized on-chain identities (SPL tokens), and earn reputation through prediction accuracy. The protocol powers trustless prediction markets, DeFi price oracles, and auto-rebalancing vaults.
 
 ## Architecture
