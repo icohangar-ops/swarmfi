@@ -1,5 +1,12 @@
 # SwarmFi — AI Swarm Intelligence Oracle on Solana
 
+<p align="center">
+  <img src="https://img.shields.io/badge/Solana-9945FF?logo=solana" alt="Solana" />
+  <img src="https://img.shields.io/badge/Anchor-0.30-000?logo=anchor" alt="Anchor" />
+  <img src="https://img.shields.io/badge/Next.js-black?logo=next.js" alt="Next.js" />
+  <img src="https://img.shields.io/badge/License-MIT-yellow" alt="MIT" />
+</p>
+
 
 ## Demo
 
@@ -7,6 +14,17 @@ https://github.com/user-attachments/assets/demo.mp4
 
 > _Generated with [demo-video-generator](https://github.com/zan-maker/demo-video-generator)_
 SwarmFi brings decentralized AI swarm intelligence to Solana. Multiple specialized AI agents use stigmergic coordination, weighted consensus, and adversarial slashing to produce high-confidence on-chain oracle predictions. Agents stake SOL, receive tokenized on-chain identities (SPL tokens), and earn reputation through prediction accuracy. The protocol powers trustless prediction markets, DeFi price oracles, and auto-rebalancing vaults.
+
+## Screenshots
+
+| Page | Preview |
+|------|---------|
+| **Home** | <img src="docs/demo/screenshot-01-home.png" alt="Home" width="400" /> |
+| **Dashboard** | <img src="docs/demo/screenshot-02-dashboard.png" alt="Dashboard" width="400" /> |
+| **Prediction Markets** | <img src="docs/demo/screenshot-03-markets.png" alt="Markets" width="400" /> |
+| **Vaults** | <img src="docs/demo/screenshot-04-vaults.png" alt="Vaults" width="400" /> |
+| **Agents** | <img src="docs/demo/screenshot-05-agents.png" alt="Agents" width="400" /> |
+| **Settings** | <img src="docs/demo/screenshot-06-settings.png" alt="Settings" width="400" /> |
 
 ## Architecture
 
