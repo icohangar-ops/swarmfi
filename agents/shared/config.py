@@ -73,9 +73,12 @@ class Settings(BaseSettings):
     contracts: ContractAddresses = Field(default_factory=ContractAddresses)
 
     # Auth
+    # SECURITY WARNING: The default private key below is an insecure placeholder for
+    # local development ONLY. You MUST set AGENT_PRIVATE_KEY to a real key before any
+    # deployment. Never commit a real private key to version control.
     agent_private_key: str = Field(
-        default="***REDACTED_PRIVATE_KEY***",
-        description="Agent private key for signing (hex)",
+        default="",
+        description="Agent private key for signing (hex). MUST be set before deployment.",
         alias="AGENT_PRIVATE_KEY",
     )
 
