@@ -89,6 +89,30 @@ Auto-rebalancing DeFi vaults driven by swarm risk signals. Supports Conservative
 - **Frontend**: Next.js, Tailwind CSS, @solana/wallet-adapter
 - **AI Agents**: Python (off-chain inference, on-chain commitment)
 - **Wallet**: Phantom, Solflare
+- **Real-Time Backend**: [SpacetimeDB](https://spacetimedb.com) v2.4 (Rust module)
+
+## Why SpacetimeDB?
+
+SwarmFi is fundamentally a **real-time coordination system** — agents submit prices, stigmergy signals decay over time, consensus rounds compute weighted medians, and the frontend must reflect all of this with sub-second latency. A traditional stack (PostgreSQL + REST API + WebSocket server) would introduce three problems that SpacetimeDB solves directly:
+
+### 1. Eliminates the WebSocket Server Entirely
+Previously, the Python `StigmergyField` class ran a background `asyncio` loop that periodically decayed signal intensities and cleaned expired entries. The frontend polled Solana RPC for updates. SpacetimeDB collapses this into **a single Rust module** where a `ScheduleAt::Interval` reducer cleans expired signals, and frontend subscriptions push state changes instantly — no polling, no separate WebSocket process.
+
+### 2. ACID State for Oracle Integrity
+Oracle consensus requires atomic reads and writes of price submissions, stakes, and reputation scores. SpacetimeDB provides full ACID guarantees with all state in memory. No read-after-write inconsistency, no phantom submissions in a consensus window. Every `compute_consensus` reducer call sees a consistent snapshot of all submissions within the 5-minute window.
+
+### 3. Solana-SpacetimeDB Bridge Pattern
+Solana handles **settlement** (escrow, vault withdrawals, market resolution) — the high-value, finality-critical layer. SpacetimeDB handles the **real-time UX layer** — price feeds, agent coordination, market previews. The `BridgeTx` table tracks cross-layer operations: agents submit prices to SpacetimeDB, a bridge reducer packages batches for Solana, and Solana events update `BridgeTx` status. This means the frontend never waits on Solana block times for UX state — it reads from SpacetimeDB instantly.
+
+### 4. Subscriptions Replace Polling
+The Next.js frontend was polling Solana RPC every few seconds for prices, markets, and vault data. With SpacetimeDB subscriptions, every connected client gets pushed updates the moment a reducer commits. This drops latency from seconds to milliseconds and eliminates RPC rate-limit issues.
+
+### 5. Reduced Infrastructure
+```
+Before: Python agents + PostgreSQL + REST API + WebSocket server + Solana RPC polling
+After:  Python agents + single SpacetimeDB module + Solana (settlement only)
+```
+SpacetimeDB replaces the PostgreSQL database, the REST API server, and the WebSocket relay — all in one Rust binary. The module lives in `spacetime/` and compiles to a WASM module published to the SpacetimeDB host.
 
 ## Quick Start
 
