@@ -4,6 +4,7 @@ members = [
     "programs/prediction-market",
     "programs/reputation-registry",
     "programs/vault-manager",
+    "spacetime",
 ]
 resolver = "2"
 
