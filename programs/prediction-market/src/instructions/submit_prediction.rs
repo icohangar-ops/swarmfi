@@ -96,7 +96,7 @@ pub fn handler(
     };
 
     // Store the prediction
-    prediction.id = config.prediction_count;
+    prediction.id = ctx.accounts.config.prediction_count;
     prediction.market_id = market.id;
     prediction.outcome = outcome;
     prediction.user = ctx.accounts.user.key();

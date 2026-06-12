@@ -47,7 +47,7 @@ pub fn handler(
     end_time: i64,
 ) -> Result<()> {
     require!(outcomes.len() >= 2, MarketError::TooFewOutcomes);
-    require!(outcomes.len() <= MAX_OUTCOMES, MarketError::TooManyMarkets);
+    require!(outcomes.len() <= MAX_OUTCOMES, MarketError::TooManyOutcomes);
     require!(question.len() <= MAX_QUESTION_LEN, MarketError::QuestionTooLong);
     require!(description.len() <= MAX_DESCRIPTION_LEN, MarketError::DescriptionTooLong);
 

@@ -4,6 +4,7 @@
 //! Agents with higher reputation × stake have more influence on the final price.
 
 use anchor_lang::prelude::*;
+use anchor_lang::Discriminator;
 use crate::state::*;
 use crate::errors::OracleError;
 
@@ -29,11 +30,11 @@ pub struct RunConsensus<'info> {
     )]
     pub consensus_round: Account<'info, ConsensusRound>,
 
-    /// List of price feed accounts for this asset pair.
-    /// In production, this would use a CPI to the oracle to fetch feeds.
-    /// For the Anchor program model, the caller passes all relevant price feeds.
-    /// CHECK: Price feeds are validated via seeds in the handler
-    pub price_feeds: Vec<AccountInfo<'info>>,
+    // Price feed accounts for this asset pair are passed via
+    // `ctx.remaining_accounts`. In production, this would use a CPI to
+    // the oracle to fetch feeds; here the caller passes all relevant
+    // price feeds as remaining accounts and they are validated by
+    // discriminator + asset pair in the handler.
 
     #[account(mut)]
     pub authority: Signer<'info>,
@@ -68,7 +69,7 @@ pub fn handler(ctx: Context<RunConsensus>, asset_pair: String) -> Result<()> {
     let mut total_confidence: u32 = 0;
     let mut agent_count: u32 = 0;
 
-    for feed_info in &ctx.accounts.price_feeds {
+    for feed_info in ctx.remaining_accounts {
         // Try to deserialize as PriceFeed
         let feed_data = feed_info.try_borrow_data()?;
         if feed_data.len() < 8 + PriceFeed::INIT_SPACE {
@@ -77,7 +78,7 @@ pub fn handler(ctx: Context<RunConsensus>, asset_pair: String) -> Result<()> {
 
         // Check discriminator (first 8 bytes)
         let discriminator = &feed_data[0..8];
-        if discriminator != PriceFeed::DISCRIMINATOR {
+        if discriminator != &PriceFeed::DISCRIMINATOR[..] {
             continue;
         }
 
@@ -108,7 +109,7 @@ pub fn handler(ctx: Context<RunConsensus>, asset_pair: String) -> Result<()> {
 
     // ── Simplified consensus for the program (using minimum agent count) ──
     require!(
-        ctx.accounts.price_feeds.len() >= config.min_agents_for_consensus as usize,
+        ctx.remaining_accounts.len() >= config.min_agents_for_consensus as usize,
         OracleError::InsufficientAgents
     );
 
@@ -120,7 +121,7 @@ pub fn handler(ctx: Context<RunConsensus>, asset_pair: String) -> Result<()> {
     // Placeholder: mark that consensus was computed
     // The actual weighted-median logic is shown in the helper function below
     let (weighted_median, median, total_weight, count, avg_conf) =
-        compute_weighted_median_from_feeds(&ctx.accounts.price_feeds, &asset_pair)?;
+        compute_weighted_median_from_feeds(ctx.remaining_accounts, &asset_pair)?;
 
     // ── Step 6: Store consensus result ──
     consensus_round.asset_pair = asset_pair.clone();
@@ -156,13 +157,14 @@ fn compute_weighted_median_from_feeds(
             continue;
         }
         let disc = &data[0..8];
-        if disc != PriceFeed::DISCRIMINATOR {
+        if disc != &PriceFeed::DISCRIMINATOR[..] {
             continue;
         }
 
-        // Use AccountUnwrap pattern if possible; otherwise skip
-        // For safety, we try to use anchor's AccountLoader
-        if let Ok(feed_account) = Account::<PriceFeed>::try_from(&feed_info.clone()) {
+        // Deserialize the account data directly (discriminator is
+        // verified again by try_deserialize).
+        let mut slice: &[u8] = &data;
+        if let Ok(feed_account) = PriceFeed::try_deserialize(&mut slice) {
             if feed_account.asset_pair == asset_pair {
                 entries.push((feed_account.price, feed_account.consensus_weight));
                 total_confidence += feed_account.confidence as u32;
@@ -226,7 +228,7 @@ pub struct SubmitStigmergySignal<'info> {
         init,
         payer = agent_authority,
         space = 8 + StigmergySignal::INIT_SPACE,
-        seeds = [b"stigmergy_signal", &[config.signal_count as u8]],
+        seeds = [b"stigmergy_signal".as_ref(), &[config.signal_count as u8]],
         bump
     )]
     pub signal: Account<'info, StigmergySignal>,

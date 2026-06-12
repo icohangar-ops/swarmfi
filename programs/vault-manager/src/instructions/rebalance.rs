@@ -41,6 +41,7 @@ pub struct RebalanceVault<'info> {
     pub rebalance_record: Account<'info, RebalanceRecord>,
 
     /// CHECK: Agent triggering the rebalance (must be whitelisted)
+    #[account(mut)]
     pub agent: Signer<'info>,
 
     pub system_program: Program<'info, System>,
@@ -86,7 +87,7 @@ pub fn handler(
     }
     if !to_found {
         vault.assets.push(AssetAllocation {
-            symbol: to_asset,
+            symbol: to_asset.clone(),
             amount,
         });
     }
@@ -112,8 +113,9 @@ pub fn handler(
     config.rebalance_count += 1;
 
     // Record performance snapshot after rebalance
+    let snapshot_value = vault.total_value as i64;
     vault.performance_history.push(clock.unix_timestamp);
-    vault.performance_history.push(vault.total_value as i64);
+    vault.performance_history.push(snapshot_value);
 
     Ok(())
 }

@@ -52,12 +52,12 @@ pub fn handler(
 
     vault.id = vault_id;
     vault.name = name;
+    vault.risk_score = strategy_type.risk_score();
     vault.strategy_type = strategy_type;
     vault.owner = ctx.accounts.owner.key();
     vault.assets = Vec::new();
     vault.total_value = 0;
     vault.total_shares = 0;
-    vault.risk_score = strategy_type.risk_score();
     vault.agent_rebalance_count = 0;
     vault.is_active = true;
     vault.created_at = clock.unix_timestamp;

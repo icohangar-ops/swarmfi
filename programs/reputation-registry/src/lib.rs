@@ -11,6 +11,7 @@ pub mod instructions;
 pub mod state;
 
 use errors::*;
+use instructions::*;
 use state::*;
 
 declare_id!("RepRGhYwcxEhMaSnZ3dKLCg3xNPEBcbNBjGEoTBDFZv");

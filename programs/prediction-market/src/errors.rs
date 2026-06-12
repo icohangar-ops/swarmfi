@@ -63,4 +63,7 @@ pub enum MarketError {
 
     #[msg("Math overflow")]
     MathOverflow,
+
+    #[msg("Too many outcomes (max 10)")]
+    TooManyOutcomes,
 }
