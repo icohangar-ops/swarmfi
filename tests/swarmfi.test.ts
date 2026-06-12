@@ -23,6 +23,7 @@ import {
 } from "@solana/web3.js";
 import { assert, expect } from "chai";
 import {
+  accountClient,
   SWARM_ORACLE_PROGRAM_ID,
   PREDICTION_MARKET_PROGRAM_ID,
   REPUTATION_REGISTRY_PROGRAM_ID,
@@ -83,28 +84,40 @@ describe("SwarmFi Protocol — Full Integration Tests", () => {
     // Note: In a real setup, these would be loaded from target/idl/
     try {
       const oracleIdl = await anchor.Program.fetchIdl(SWARM_ORACLE_PROGRAM_ID, provider);
-      oracleProgram = new anchor.Program(oracleIdl!, SWARM_ORACLE_PROGRAM_ID, provider);
+      oracleProgram = new anchor.Program(
+        { ...oracleIdl!, address: SWARM_ORACLE_PROGRAM_ID.toBase58() },
+        provider
+      );
     } catch {
       console.log("Oracle IDL not found — skipping oracle tests");
     }
 
     try {
       const marketIdl = await anchor.Program.fetchIdl(PREDICTION_MARKET_PROGRAM_ID, provider);
-      marketProgram = new anchor.Program(marketIdl!, PREDICTION_MARKET_PROGRAM_ID, provider);
+      marketProgram = new anchor.Program(
+        { ...marketIdl!, address: PREDICTION_MARKET_PROGRAM_ID.toBase58() },
+        provider
+      );
     } catch {
       console.log("Market IDL not found — skipping market tests");
     }
 
     try {
       const repIdl = await anchor.Program.fetchIdl(REPUTATION_REGISTRY_PROGRAM_ID, provider);
-      reputationProgram = new anchor.Program(repIdl!, REPUTATION_REGISTRY_PROGRAM_ID, provider);
+      reputationProgram = new anchor.Program(
+        { ...repIdl!, address: REPUTATION_REGISTRY_PROGRAM_ID.toBase58() },
+        provider
+      );
     } catch {
       console.log("Reputation IDL not found — skipping reputation tests");
     }
 
     try {
       const vaultIdl = await anchor.Program.fetchIdl(VAULT_MANAGER_PROGRAM_ID, provider);
-      vaultProgram = new anchor.Program(vaultIdl!, VAULT_MANAGER_PROGRAM_ID, provider);
+      vaultProgram = new anchor.Program(
+        { ...vaultIdl!, address: VAULT_MANAGER_PROGRAM_ID.toBase58() },
+        provider
+      );
     } catch {
       console.log("Vault IDL not found — skipping vault tests");
     }
@@ -138,7 +151,7 @@ describe("SwarmFi Protocol — Full Integration Tests", () => {
         })
         .rpc();
 
-      const config = await oracleProgram.account.oracleConfig.fetch(configPda);
+      const config = await accountClient(oracleProgram, "oracleConfig").fetch(configPda);
       assert.equal(config.authority.toBase58(), admin.publicKey.toBase58());
       assert.equal(config.minAgentsForConsensus, 2);
       assert.equal(config.maxAgeSeconds, 3600);
@@ -182,7 +195,7 @@ describe("SwarmFi Protocol — Full Integration Tests", () => {
         .signers([agent1])
         .rpc();
 
-      const node = await oracleProgram.account.agentNode.fetch(agentNodePda);
+      const node = await accountClient(oracleProgram, "agentNode").fetch(agentNodePda);
       assert.equal(node.authority.toBase58(), agent1.publicKey.toBase58());
       assert.equal(node.name, "PriceAgent-1");
       assert.equal(node.reputationScore, 100);
@@ -225,12 +238,12 @@ describe("SwarmFi Protocol — Full Integration Tests", () => {
         .signers([agent2])
         .rpc();
 
-      const node = await oracleProgram.account.agentNode.fetch(agentNodePda);
+      const node = await accountClient(oracleProgram, "agentNode").fetch(agentNodePda);
       assert.equal(node.name, "RiskAgent-1");
       assert.equal(node.stakeAmount.toNumber(), 3 * LAMPORTS_PER_SOL);
 
       // Verify config count updated
-      const config = await oracleProgram.account.oracleConfig.fetch(configPda);
+      const config = await accountClient(oracleProgram, "oracleConfig").fetch(configPda);
       assert.equal(config.agentCount, 2);
       console.log("  ✅ Agent 2 registered with 3 SOL stake");
     });
@@ -256,7 +269,7 @@ describe("SwarmFi Protocol — Full Integration Tests", () => {
         .signers([agent1])
         .rpc();
 
-      const feed = await oracleProgram.account.priceFeed.fetch(priceFeedPda);
+      const feed = await accountClient(oracleProgram, "priceFeed").fetch(priceFeedPda);
       assert.equal(feed.assetPair, "BTC/USDT");
       assert.equal(feed.price.toNumber(), price);
       assert.equal(feed.confidence, 200);
@@ -285,7 +298,7 @@ describe("SwarmFi Protocol — Full Integration Tests", () => {
         .signers([agent2])
         .rpc();
 
-      const feed = await oracleProgram.account.priceFeed.fetch(priceFeedPda);
+      const feed = await accountClient(oracleProgram, "priceFeed").fetch(priceFeedPda);
       assert.equal(feed.price.toNumber(), price);
       console.log("  ✅ Price submitted: BTC/USDT = $64,500");
     });
@@ -308,7 +321,7 @@ describe("SwarmFi Protocol — Full Integration Tests", () => {
         })
         .rpc();
 
-      const config = await reputationProgram.account.registryConfig.fetch(configPda);
+      const config = await accountClient(reputationProgram, "registryConfig").fetch(configPda);
       assert.equal(config.admin.toBase58(), admin.publicKey.toBase58());
       console.log("  ✅ Reputation registry initialized");
     });
@@ -330,7 +343,7 @@ describe("SwarmFi Protocol — Full Integration Tests", () => {
         })
         .rpc();
 
-      const rep = await reputationProgram.account.agentReputation.fetch(agentRepPda);
+      const rep = await accountClient(reputationProgram, "agentReputation").fetch(agentRepPda);
       assert.equal(rep.agent.toBase58(), agent1.publicKey.toBase58());
       assert.equal(rep.totalTasks, 1);
       assert.equal(rep.successfulTasks, 1);
@@ -359,7 +372,7 @@ describe("SwarmFi Protocol — Full Integration Tests", () => {
         })
         .rpc();
 
-      const rep = await reputationProgram.account.userReputation.fetch(userPda);
+      const rep = await accountClient(reputationProgram, "userReputation").fetch(userPda);
       assert.equal(rep.user.toBase58(), user1.publicKey.toBase58());
       assert.equal(rep.totalBets, 1);
       assert.equal(rep.correctBets, 1);
@@ -387,7 +400,7 @@ describe("SwarmFi Protocol — Full Integration Tests", () => {
         })
         .rpc();
 
-      const config = await marketProgram.account.marketConfig.fetch(configPda);
+      const config = await accountClient(marketProgram, "marketConfig").fetch(configPda);
       assert.equal(config.feeRateBps, 25);
       assert.equal(config.maxMarkets, 100);
       console.log("  ✅ Prediction market initialized");
@@ -397,7 +410,7 @@ describe("SwarmFi Protocol — Full Integration Tests", () => {
       if (!marketProgram) return;
 
       const [configPda] = deriveMarketConfigPda(PREDICTION_MARKET_PROGRAM_ID);
-      const preConfig = await marketProgram.account.marketConfig.fetch(configPda);
+      const preConfig = await accountClient(marketProgram, "marketConfig").fetch(configPda);
       marketId = preConfig.marketCount;
 
       const [marketPda] = deriveMarketPda(marketId, PREDICTION_MARKET_PROGRAM_ID);
@@ -420,7 +433,7 @@ describe("SwarmFi Protocol — Full Integration Tests", () => {
         })
         .rpc();
 
-      const market = await marketProgram.account.market.fetch(marketPda);
+      const market = await accountClient(marketProgram, "market").fetch(marketPda);
       assert.equal(market.question, "Will BTC be above $70k by end of 2025?");
       assert.deepEqual(market.outcomes, ["YES", "NO"]);
       assert.isTrue(market.status.active);
@@ -453,7 +466,7 @@ describe("SwarmFi Protocol — Full Integration Tests", () => {
         .signers([user1])
         .rpc();
 
-      const prediction = await marketProgram.account.prediction.fetch(predictionPda);
+      const prediction = await accountClient(marketProgram, "prediction").fetch(predictionPda);
       assert.equal(prediction.outcome, "YES");
       assert.equal(prediction.stakeAmount.toNumber(), 2 * LAMPORTS_PER_SOL);
       console.log("  ✅ User 1 predicted YES with 2 SOL");
@@ -485,12 +498,12 @@ describe("SwarmFi Protocol — Full Integration Tests", () => {
         .signers([user2])
         .rpc();
 
-      const prediction = await marketProgram.account.prediction.fetch(predictionPda);
+      const prediction = await accountClient(marketProgram, "prediction").fetch(predictionPda);
       assert.equal(prediction.outcome, "NO");
       assert.equal(prediction.stakeAmount.toNumber(), 1 * LAMPORTS_PER_SOL);
 
       // Verify market liquidity updated
-      const market = await marketProgram.account.market.fetch(marketPda);
+      const market = await accountClient(marketProgram, "market").fetch(marketPda);
       assert.equal(market.totalVolume.toNumber(), 3 * LAMPORTS_PER_SOL);
       console.log("  ✅ User 2 predicted NO with 1 SOL");
     });
@@ -504,7 +517,7 @@ describe("SwarmFi Protocol — Full Integration Tests", () => {
 
       // First, update the market's end_time to the past so resolution succeeds
       // In production, this would be done by waiting or using a time-manipulated localnet
-      const market = await marketProgram.account.market.fetch(marketPda);
+      const market = await accountClient(marketProgram, "market").fetch(marketPda);
       // If end_time is in the future, we need to wait (or modify for testing)
       // For now, we assume the test runs after the market ends
 
@@ -519,7 +532,7 @@ describe("SwarmFi Protocol — Full Integration Tests", () => {
         })
         .rpc();
 
-      const resolvedMarket = await marketProgram.account.market.fetch(marketPda);
+      const resolvedMarket = await accountClient(marketProgram, "market").fetch(marketPda);
       assert.isTrue(resolvedMarket.status.resolved);
       assert.equal(resolvedMarket.winningOutcome, "YES");
       console.log("  ✅ Market resolved: YES wins");
@@ -545,7 +558,7 @@ describe("SwarmFi Protocol — Full Integration Tests", () => {
         })
         .rpc();
 
-      const config = await vaultProgram.account.vaultConfig.fetch(configPda);
+      const config = await accountClient(vaultProgram, "vaultConfig").fetch(configPda);
       assert.equal(config.feeRateBps, 50);
       console.log("  ✅ Vault manager initialized");
     });
@@ -554,7 +567,7 @@ describe("SwarmFi Protocol — Full Integration Tests", () => {
       if (!vaultProgram) return;
 
       const [configPda] = deriveVaultConfigPda(VAULT_MANAGER_PROGRAM_ID);
-      const preConfig = await vaultProgram.account.vaultConfig.fetch(configPda);
+      const preConfig = await accountClient(vaultProgram, "vaultConfig").fetch(configPda);
       vaultId = preConfig.vaultCount;
 
       const [vaultPda] = deriveVaultPda(vaultId, VAULT_MANAGER_PROGRAM_ID);
@@ -571,7 +584,7 @@ describe("SwarmFi Protocol — Full Integration Tests", () => {
         })
         .rpc();
 
-      const vault = await vaultProgram.account.vault.fetch(vaultPda);
+      const vault = await accountClient(vaultProgram, "vault").fetch(vaultPda);
       assert.equal(vault.name, "SwarmFi Balanced Fund");
       assert.isTrue(vault.strategyType.balanced);
       assert.equal(vault.riskScore, 5);
@@ -600,10 +613,10 @@ describe("SwarmFi Protocol — Full Integration Tests", () => {
         .signers([user1])
         .rpc();
 
-      const deposit = await vaultProgram.account.vaultDeposit.fetch(depositPda);
+      const deposit = await accountClient(vaultProgram, "vaultDeposit").fetch(depositPda);
       assert.equal(deposit.shares.toNumber(), 3 * LAMPORTS_PER_SOL); // First deposit: 1:1 shares
 
-      const vault = await vaultProgram.account.vault.fetch(vaultPda);
+      const vault = await accountClient(vaultProgram, "vault").fetch(vaultPda);
       assert.equal(vault.totalValue.toNumber(), 3 * LAMPORTS_PER_SOL);
       assert.equal(vault.totalShares.toNumber(), 3 * LAMPORTS_PER_SOL);
       console.log("  ✅ Deposited 3 SOL into vault (3 SOL shares)");
@@ -630,7 +643,7 @@ describe("SwarmFi Protocol — Full Integration Tests", () => {
         .signers([user2])
         .rpc();
 
-      const vault = await vaultProgram.account.vault.fetch(vaultPda);
+      const vault = await accountClient(vaultProgram, "vault").fetch(vaultPda);
       assert.equal(vault.totalValue.toNumber(), 9 * LAMPORTS_PER_SOL);
       console.log("  ✅ Deposited 6 SOL (vault total: 9 SOL)");
     });
@@ -643,7 +656,7 @@ describe("SwarmFi Protocol — Full Integration Tests", () => {
       const [depositPda] = deriveVaultDepositPda(vaultId, user1.publicKey, VAULT_MANAGER_PROGRAM_ID);
       const [vaultFundsPda] = deriveVaultFundsPda(vaultId, VAULT_MANAGER_PROGRAM_ID);
 
-      const depositBefore = await vaultProgram.account.vaultDeposit.fetch(depositPda);
+      const depositBefore = await accountClient(vaultProgram, "vaultDeposit").fetch(depositPda);
       const sharesToWithdraw = depositBefore.shares.div(new BN(2)); // Withdraw half
 
       await vaultProgram.methods
@@ -659,7 +672,7 @@ describe("SwarmFi Protocol — Full Integration Tests", () => {
         .signers([user1])
         .rpc();
 
-      const depositAfter = await vaultProgram.account.vaultDeposit.fetch(depositPda);
+      const depositAfter = await accountClient(vaultProgram, "vaultDeposit").fetch(depositPda);
       assert.isTrue(
         depositAfter.shares.lt(depositBefore.shares),
         "Shares should decrease after withdrawal"
