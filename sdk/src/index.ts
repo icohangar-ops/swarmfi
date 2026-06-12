@@ -22,6 +22,18 @@ import {
   mintTo,
 } from "@solana/spl-token";
 
+// ── Dynamic account access ─────────────────────────────────────────
+// IDLs are loaded at runtime (no statically generated account types),
+// so the Anchor account namespace is accessed through this typed helper.
+
+interface DynamicAccountClient {
+  fetch(address: PublicKey): Promise<any>;
+}
+
+export function accountClient(program: anchor.Program, name: string): DynamicAccountClient {
+  return (program.account as unknown as Record<string, DynamicAccountClient>)[name];
+}
+
 // ── Program IDs ────────────────────────────────────────────────────
 
 export const SWARM_ORACLE_PROGRAM_ID = new PublicKey(
@@ -310,17 +322,17 @@ export class SwarmOracleClient {
 
   async fetchConfig(): Promise<any> {
     const [configPda] = deriveOracleConfigPda(this.programId);
-    return this.program.account.oracleConfig.fetch(configPda);
+    return accountClient(this.program, "oracleConfig").fetch(configPda);
   }
 
   async fetchAgentNode(authority: PublicKey): Promise<any> {
     const [agentNodePda] = deriveAgentNodePda(authority, this.programId);
-    return this.program.account.agentNode.fetch(agentNodePda);
+    return accountClient(this.program, "agentNode").fetch(agentNodePda);
   }
 
   async fetchPriceFeed(assetPair: string, agent: PublicKey): Promise<any> {
     const [priceFeedPda] = derivePriceFeedPda(assetPair, agent, this.programId);
-    return this.program.account.priceFeed.fetch(priceFeedPda);
+    return accountClient(this.program, "priceFeed").fetch(priceFeedPda);
   }
 }
 
@@ -362,7 +374,7 @@ export class PredictionMarketClient {
     endTime: number;
   }): Promise<anchor.web3.TransactionSignature> {
     const [configPda] = deriveMarketConfigPda(this.programId);
-    const config = await this.program.account.marketConfig.fetch(configPda);
+    const config = await accountClient(this.program, "marketConfig").fetch(configPda);
     const marketId = config.marketCount;
     const [marketPda] = deriveMarketPda(marketId, this.programId);
     const [treasuryPda] = deriveMarketTreasuryPda(this.programId);
@@ -463,12 +475,12 @@ export class PredictionMarketClient {
 
   async fetchConfig(): Promise<any> {
     const [configPda] = deriveMarketConfigPda(this.programId);
-    return this.program.account.marketConfig.fetch(configPda);
+    return accountClient(this.program, "marketConfig").fetch(configPda);
   }
 
   async fetchMarket(marketId: BN | number): Promise<any> {
     const [marketPda] = deriveMarketPda(marketId, this.programId);
-    return this.program.account.market.fetch(marketPda);
+    return accountClient(this.program, "market").fetch(marketPda);
   }
 }
 
@@ -546,12 +558,12 @@ export class ReputationRegistryClient {
 
   async fetchAgentReputation(agent: PublicKey): Promise<any> {
     const [agentRepPda] = deriveAgentReputationPda(agent, this.programId);
-    return this.program.account.agentReputation.fetch(agentRepPda);
+    return accountClient(this.program, "agentReputation").fetch(agentRepPda);
   }
 
   async fetchUserReputation(user: PublicKey): Promise<any> {
     const [userRepPda] = deriveUserReputationPda(user, this.programId);
-    return this.program.account.userReputation.fetch(userRepPda);
+    return accountClient(this.program, "userReputation").fetch(userRepPda);
   }
 }
 
@@ -590,7 +602,7 @@ export class VaultManagerClient {
     strategyType: { conservative: {} } | { balanced: {} } | { aggressive: {} };
   }): Promise<anchor.web3.TransactionSignature> {
     const [configPda] = deriveVaultConfigPda(this.programId);
-    const config = await this.program.account.vaultConfig.fetch(configPda);
+    const config = await accountClient(this.program, "vaultConfig").fetch(configPda);
     const vaultId = config.vaultCount;
     const [vaultPda] = deriveVaultPda(vaultId, this.programId);
     const [vaultFundsPda] = deriveVaultFundsPda(vaultId, this.programId);
@@ -685,17 +697,17 @@ export class VaultManagerClient {
 
   async fetchConfig(): Promise<any> {
     const [configPda] = deriveVaultConfigPda(this.programId);
-    return this.program.account.vaultConfig.fetch(configPda);
+    return accountClient(this.program, "vaultConfig").fetch(configPda);
   }
 
   async fetchVault(vaultId: BN | number): Promise<any> {
     const [vaultPda] = deriveVaultPda(vaultId, this.programId);
-    return this.program.account.vault.fetch(vaultPda);
+    return accountClient(this.program, "vault").fetch(vaultPda);
   }
 
   async fetchDeposit(vaultId: BN | number, depositor: PublicKey): Promise<any> {
     const [depositPda] = deriveVaultDepositPda(vaultId, depositor, this.programId);
-    return this.program.account.vaultDeposit.fetch(depositPda);
+    return accountClient(this.program, "vaultDeposit").fetch(depositPda);
   }
 }
 
