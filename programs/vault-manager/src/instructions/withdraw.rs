@@ -5,6 +5,7 @@ use crate::state::*;
 use crate::errors::VaultError;
 
 #[derive(Accounts)]
+#[instruction(share_amount: u64)]
 pub struct WithdrawVault<'info> {
     #[account(
         seeds = [b"vault_config"],
@@ -72,14 +73,16 @@ pub fn handler(ctx: Context<WithdrawVault>, share_amount: u64) -> Result<()> {
     vault.total_value = vault.total_value.saturating_sub(withdraw_value);
 
     // Deduct SOL from asset allocations
+    let remaining_value = vault.total_value;
+    let shares_before = vault.total_shares + share_amount;
     for asset in vault.assets.iter_mut() {
         if asset.symbol == "SOL" {
-            let asset_withdraw = if vault.total_value == 0 {
+            let asset_withdraw = if remaining_value == 0 {
                 asset.amount
             } else {
                 ((share_amount as u128)
                     .saturating_mul(asset.amount as u128)
-                    / (vault.total_shares + share_amount) as u128) as u64
+                    / shares_before as u128) as u64
             };
             asset.amount = asset.amount.saturating_sub(asset_withdraw);
             break;
@@ -94,8 +97,9 @@ pub fn handler(ctx: Context<WithdrawVault>, share_amount: u64) -> Result<()> {
     deposit_record.amount = deposit_record.amount.saturating_sub(withdraw_value);
 
     // Record performance
+    let snapshot_value = vault.total_value as i64;
     vault.performance_history.push(clock.unix_timestamp);
-    vault.performance_history.push(vault.total_value as i64);
+    vault.performance_history.push(snapshot_value);
 
     // Transfer SOL from vault funds to depositor
     let vault_lamports = ctx.accounts.vault_funds.lamports();

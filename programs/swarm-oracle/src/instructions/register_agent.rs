@@ -85,30 +85,17 @@ pub fn handler(
         to: ctx.accounts.agent_token_account.to_account_info(),
         authority: config.to_account_info(),
     };
+    let config_bump = [config.bump];
+    let config_seeds: &[&[u8]] = &[b"oracle_config", &config_bump];
+    let signer_seeds = &[config_seeds];
     let cpi_ctx = CpiContext::new_with_signer(
         ctx.accounts.token_program.to_account_info(),
         cpi_accounts,
-        &[&[
-            b"oracle_config",
-            &[config.bump],
-        ]],
+        signer_seeds,
     );
     token::mint_to(cpi_ctx, 1)?;
 
     // Transfer SOL stake to vault
-    let vault_bump = *ctx.bumps.get("stake_vault").unwrap();
-    let vault_seeds = &[
-        b"agent_stake_vault",
-        authority.key().as_ref(),
-        &[vault_bump],
-    ];
-    let vault_key = Pubkey::create_program_address(vault_seeds, ctx.program_id)?;
-
-    // Create the vault account if it doesn't exist
-    let rent = Rent::get()?;
-    let vault_space = 0;
-    let vault_lamports = rent.minimum_balance(vault_space) + stake_amount;
-
     anchor_lang::system_program::transfer(
         CpiContext::new(
             ctx.accounts.system_program.to_account_info(),

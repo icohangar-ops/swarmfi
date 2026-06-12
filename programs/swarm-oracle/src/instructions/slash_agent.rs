@@ -85,11 +85,6 @@ pub fn handler(
         OracleError::SlashExceedsStake
     );
 
-    // Transfer from stake vault to treasury
-    let treasury_bump = ctx.accounts.treasury.bump;
-    let treasury_seeds = &[b"treasury", &[treasury_bump]];
-    let treasury_key = Pubkey::create_program_address(treasury_seeds, ctx.program_id)?;
-
     // ** Note: In production, the stake vault should be a proper system account
     // or use a token-based staking mechanism. For this implementation,
     // we deduct from the tracked stake amount. **

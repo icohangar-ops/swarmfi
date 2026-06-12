@@ -1,3 +1,6 @@
 # CHP session artifacts (local only)
 .chp_registry.json
 .chp/sessions/
+
+# Rust build artifacts
+/target

@@ -97,8 +97,9 @@ pub fn handler(ctx: Context<DepositVault>, amount: u64) -> Result<()> {
     }
 
     // Record performance snapshot
+    let snapshot_value = vault.total_value as i64;
     vault.performance_history.push(clock.unix_timestamp);
-    vault.performance_history.push(vault.total_value as i64);
+    vault.performance_history.push(snapshot_value);
     // Keep only last MAX_PERFORMANCE_POINTS entries
     let max_entries = MAX_PERFORMANCE_POINTS * 2;
     while vault.performance_history.len() > max_entries {

@@ -49,7 +49,7 @@ pub struct Market {
     #[max_len(MAX_DESCRIPTION_LEN)]
     pub description: String,
     /// Possible outcomes (at least 2)
-    #[max_len(MAX_OUTCOMES)]
+    #[max_len(MAX_OUTCOMES, MAX_OUTCOME_LEN)]
     pub outcomes: Vec<String>,
     /// Unix timestamp when the market ends
     pub end_time: i64,

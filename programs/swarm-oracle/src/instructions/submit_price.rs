@@ -45,8 +45,7 @@ pub fn handler(
     price: u64,
     confidence: u8,
 ) -> Result<()> {
-    require!(!price == false, OracleError::ZeroPrice); // price must not be 0
-    require!(price > 0, OracleError::ZeroPrice);
+    require!(price > 0, OracleError::ZeroPrice); // price must not be 0
     require!(confidence > 0, OracleError::InvalidConfidence);
     require!(asset_pair.len() <= MAX_ASSET_PAIR_LEN, OracleError::AssetPairTooLong);
 

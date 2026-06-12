@@ -10,9 +10,10 @@ pub mod instructions;
 pub mod state;
 
 use errors::*;
+use instructions::*;
 use state::*;
 
-declare_id!("VltMgcHHAfKXkRBRyfzXhCZrN3NaE8kTGYhfPaCmjPQy");
+declare_id!("5BYNaHByYMiKo1zmc5YZ3taY5bLmvnj1eeAhWdhpFmLU");
 
 #[program]
 pub mod vault_manager {
