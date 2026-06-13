@@ -149,7 +149,7 @@ cd frontend && npm install && npm run dev
 Category: **Agents + Tokenization** — AI agents with onchain identity and economic functionality on Solana.
 
 ## Repo
-github.com/zan-maker/swarmfi
+github.com/icohangar-ops/swarmfi
 
 ---
 
