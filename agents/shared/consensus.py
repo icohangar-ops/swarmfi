@@ -84,6 +84,17 @@ class SwarmConsensus:
         Returns:
             ConsensusResult if valid consensus reached, None otherwise.
         """
+        # Exclude submissions explicitly flagged stale (e.g. cached oracle
+        # fallbacks older than 2x the fetch interval). These carry outdated
+        # prices and must not influence the consensus value.
+        stale = [s for s in submissions if s.metadata.get("stale") is True]
+        if stale:
+            logger.warning(
+                f"Excluding {len(stale)} stale submission(s) from consensus: "
+                f"{[s.agent_address for s in stale]}"
+            )
+            submissions = [s for s in submissions if s.metadata.get("stale") is not True]
+
         if len(submissions) < self.min_submissions:
             logger.warning(
                 f"Cannot compute consensus: only {len(submissions)} submissions "

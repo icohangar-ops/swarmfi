@@ -17,6 +17,10 @@ from shared.types import PriceSubmission
 from price_agents.base import BasePriceAgent
 
 
+class _RateLimited(Exception):
+    """Internal marker raised on an HTTP 429 from CoinGecko."""
+
+
 class CoinGeckoAgent(BasePriceAgent):
     """Fetches prices from the CoinGecko API.
 
@@ -41,12 +45,21 @@ class CoinGeckoAgent(BasePriceAgent):
         "INIT/USDT": "initia",
     }
 
+    # Defaults mirror AgentConfig; can be overridden via constructor.
+    DEFAULT_MAX_RETRIES = 3
+    DEFAULT_FETCH_INTERVAL = 15.0
+    # Base backoff (seconds) for the exponential retry loop.
+    _BACKOFF_BASE = 0.5
+    _BACKOFF_CAP = 8.0
+
     def __init__(
         self,
         name: str = "CoinGecko Agent",
         agent_address: str = "coingecko_agent_001",
         stigmergy=None,
         demo_mode: bool = False,
+        max_retries: int = DEFAULT_MAX_RETRIES,
+        fetch_interval: float = DEFAULT_FETCH_INTERVAL,
     ) -> None:
         """Initialize the CoinGecko agent.
 
@@ -55,11 +68,20 @@ class CoinGeckoAgent(BasePriceAgent):
             agent_address: Agent identifier.
             stigmergy: Stigmergy field instance.
             demo_mode: Whether to generate simulated data.
+            max_retries: Max retry attempts for transient HTTP failures
+                (honors AgentConfig.max_retries).
+            fetch_interval: Expected seconds between fetch cycles. Cached
+                fallback prices older than 2x this value are treated as
+                stale and excluded from consensus.
         """
         super().__init__(name, agent_address, "coingecko", stigmergy)
         self._session: Optional[aiohttp.ClientSession] = None
         self._demo_mode = demo_mode
         self._price_cache: Dict[str, float] = {}
+        # Wall-clock timestamp of when each cached price was last refreshed.
+        self._price_cache_ts: Dict[str, float] = {}
+        self._max_retries = max(0, int(max_retries))
+        self._fetch_interval = float(fetch_interval)
         self._logger = get_logger("PRICE/coingecko")
 
     async def fetch_price(self, asset_pair: str) -> Optional[PriceSubmission]:
@@ -95,54 +117,106 @@ class CoinGeckoAgent(BasePriceAgent):
                 timeout=aiohttp.ClientTimeout(total=10),
             )
 
-        try:
-            url = f"{self.BASE_URL}/simple/price"
-            params = {
-                "ids": coin_id,
-                "vs_currencies": "usd",
-                "include_24hr_vol": "true",
-                "include_last_updated_at": "true",
-            }
+        # Bounded exponential-backoff retry loop honoring max_retries.
+        # Total attempts = max_retries + 1 (initial try plus retries).
+        last_error: Optional[Exception] = None
+        attempts = self._max_retries + 1
+        for attempt in range(attempts):
+            try:
+                return await self._fetch_once(asset_pair, coin_id)
+            except _RateLimited:
+                # Rate limiting is unlikely to clear within a few hundred ms;
+                # fall back to cached/demo immediately rather than hammering.
+                self._logger.warning("CoinGecko rate limit hit")
+                return self._cached_or_demo(asset_pair)
+            except (asyncio.TimeoutError, aiohttp.ClientError) as e:
+                last_error = e
+                if attempt < attempts - 1:
+                    delay = self._backoff_delay(attempt)
+                    self._logger.warning(
+                        f"CoinGecko transient error for {asset_pair} "
+                        f"(attempt {attempt + 1}/{attempts}): {e}; "
+                        f"retrying in {delay:.2f}s"
+                    )
+                    await asyncio.sleep(delay)
+                    continue
+                self._logger.warning(
+                    f"CoinGecko failed for {asset_pair} after {attempts} "
+                    f"attempt(s): {e}"
+                )
+            except Exception as e:
+                # Non-transient error: do not retry.
+                self._logger.error(f"CoinGecko error for {asset_pair}: {e}")
+                return self._cached_or_demo(asset_pair)
 
-            async with self._session.get(url, params=params) as resp:
-                if resp.status == 429:
-                    self._logger.warning("CoinGecko rate limit hit")
-                    return self._cached_or_demo(asset_pair)
-                resp.raise_for_status()
-                data = await resp.json()
+        # Exhausted retries on transient failures.
+        return self._cached_or_demo(asset_pair)
 
-            coin_data = data.get(coin_id, {})
-            price = coin_data.get("usd", 0.0)
-            volume = coin_data.get("usd_24h_vol")
+    def _backoff_delay(self, attempt: int) -> float:
+        """Exponential backoff with full jitter, capped.
 
-            if price <= 0:
-                self._logger.warning(f"Invalid price from CoinGecko for {asset_pair}: {price}")
-                return None
+        Args:
+            attempt: Zero-based attempt index.
 
-            self._price_cache[asset_pair] = price
+        Returns:
+            Delay in seconds before the next retry.
+        """
+        ceiling = min(self._BACKOFF_CAP, self._BACKOFF_BASE * (2 ** attempt))
+        return random.uniform(0.0, ceiling)
 
-            return PriceSubmission(
-                asset_pair=asset_pair,
-                price=price,
-                confidence=0.90,
-                source=self.source,
-                agent_address=self.agent_address,
-                volume_24h=volume,
-                metadata={
-                    "api": "coingecko_v3",
-                    "coin_id": coin_id,
-                },
-            )
+    async def _fetch_once(self, asset_pair: str, coin_id: str) -> Optional[PriceSubmission]:
+        """Perform a single CoinGecko price fetch.
 
-        except asyncio.TimeoutError:
-            self._logger.warning(f"CoinGecko timeout for {asset_pair}")
-            return self._cached_or_demo(asset_pair)
-        except aiohttp.ClientError as e:
-            self._logger.warning(f"CoinGecko HTTP error for {asset_pair}: {e}")
-            return self._cached_or_demo(asset_pair)
-        except Exception as e:
-            self._logger.error(f"CoinGecko error for {asset_pair}: {e}")
-            return self._cached_or_demo(asset_pair)
+        Args:
+            asset_pair: Trading pair.
+            coin_id: CoinGecko coin identifier.
+
+        Returns:
+            PriceSubmission on success, or None for a non-retryable bad payload.
+
+        Raises:
+            _RateLimited: On HTTP 429.
+            asyncio.TimeoutError / aiohttp.ClientError: On transient failures
+                (caught by the retry loop).
+        """
+        url = f"{self.BASE_URL}/simple/price"
+        params = {
+            "ids": coin_id,
+            "vs_currencies": "usd",
+            "include_24hr_vol": "true",
+            "include_last_updated_at": "true",
+        }
+
+        async with self._session.get(url, params=params) as resp:
+            if resp.status == 429:
+                raise _RateLimited()
+            resp.raise_for_status()
+            data = await resp.json()
+
+        coin_data = data.get(coin_id, {})
+        price = coin_data.get("usd", 0.0)
+        volume = coin_data.get("usd_24h_vol")
+
+        if price <= 0:
+            self._logger.warning(f"Invalid price from CoinGecko for {asset_pair}: {price}")
+            return None
+
+        self._price_cache[asset_pair] = price
+        self._price_cache_ts[asset_pair] = time.time()
+
+        return PriceSubmission(
+            asset_pair=asset_pair,
+            price=price,
+            confidence=0.90,
+            source=self.source,
+            agent_address=self.agent_address,
+            volume_24h=volume,
+            metadata={
+                "api": "coingecko_v3",
+                "coin_id": coin_id,
+                "stale": False,
+            },
+        )
 
     async def _demo_fetch_price(self, asset_pair: str) -> Optional[PriceSubmission]:
         """Generate simulated price data for demo mode.
@@ -177,6 +251,7 @@ class CoinGeckoAgent(BasePriceAgent):
         price = min(price, base * 1.1)  # Ceiling at 110% of base
 
         self._price_cache[asset_pair] = price
+        self._price_cache_ts[asset_pair] = time.time()
 
         return PriceSubmission(
             asset_pair=asset_pair,
@@ -191,6 +266,10 @@ class CoinGeckoAgent(BasePriceAgent):
     def _cached_or_demo(self, asset_pair: str) -> Optional[PriceSubmission]:
         """Return cached price or fall back to demo.
 
+        Cached fallbacks carry a staleness timestamp. If the cached value is
+        older than 2x the fetch interval it is marked stale so the consensus
+        engine can exclude it.
+
         Args:
             asset_pair: Trading pair.
 
@@ -199,13 +278,31 @@ class CoinGeckoAgent(BasePriceAgent):
         """
         if asset_pair in self._price_cache:
             price = self._price_cache[asset_pair]
+            cached_at = self._price_cache_ts.get(asset_pair, 0.0)
+            age = time.time() - cached_at if cached_at else float("inf")
+            stale_after = 2.0 * self._fetch_interval
+            is_stale = age > stale_after
+
+            if is_stale:
+                self._logger.warning(
+                    f"Cached CoinGecko price for {asset_pair} is stale "
+                    f"(age={age:.1f}s > {stale_after:.1f}s); "
+                    f"excluding from consensus"
+                )
+
             return PriceSubmission(
                 asset_pair=asset_pair,
                 price=price,
-                confidence=0.7,  # Lower confidence for cached data
+                # Lower confidence for cached data; lower still when stale.
+                confidence=0.3 if is_stale else 0.7,
                 source=f"{self.source}_cached",
                 agent_address=self.agent_address,
-                metadata={"mode": "cached"},
+                metadata={
+                    "mode": "cached",
+                    "stale": is_stale,
+                    "cache_age_seconds": round(age, 3) if cached_at else None,
+                    "cached_at": cached_at or None,
+                },
             )
         return None
 
