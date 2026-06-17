@@ -4,6 +4,27 @@
 
 # Rust build artifacts
 /target
+target/
 
 # Node dependencies
 node_modules/
+dist/
+build/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Downloaded CLI tooling / binaries (fetched by scripts, not source)
+/bin/weave
+/bin/weave-*.tar.gz
+
+# Environment / secrets
+.env
+.env.local
+
+# Logs and OS files
+*.log
+.DS_Store
