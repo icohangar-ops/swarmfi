@@ -153,6 +153,45 @@ github.com/icohangar-ops/swarmfi
 
 ---
 
+## MAPS Integration
+
+<p align="center">
+  <img src="https://img.shields.io/badge/Built%20with-MAPS%20%7C%20Multi-Agent%20Pipeline%20Skills-blue" alt="MAPS" />
+</p>
+
+SwarmFi's swarm intelligence architecture leverages the [MAPS framework](https://mojoaistudio.com/maps/) (Multi-Agent Pipeline Skills) for building and coordinating its decentralized multi-agent oracle system.
+
+### M Layer (Multi-Agent System) — Phase Mapping
+
+| MAPS Phase | SwarmFi Component |
+|------------|-------------------|
+| **M0 Foundation** | Project intent — decentralized oracle via swarm intelligence; RAG via SpacetimeDB |
+| **M1 System Shape** | Multi-Agent track — swarm of specialized AI agents with stigmergic coordination |
+| **M2 Roster** | Oracle Agents (price submitters), Prediction Agents, Vault Rebalancing Agents |
+| **M3 Contracts** | Stigmergy protocol, weighted consensus rounds, reputation-tiered influence |
+| **M4 Coordination** | Indirect coordination via on-chain signal deposits with temporal decay |
+| **M5 Agent Buildout** | Python off-chain agents with SPL token on-chain identities |
+| **M6 Capabilities** | Price feed submission, prediction staking, vault rebalancing triggers |
+| **M7 Orchestration** | Solana Anchor programs orchestrate agent settlement and consensus rounds |
+| **M8 Experience** | Next.js dashboard — price feeds, markets, vaults, agent registry, settings |
+| **M9 Evaluate** | On-chain accuracy tracking, reputation tier progression, slashing conditions |
+| **M10 Deploy** | Anchor deploy to Solana (devnet/mainnet), SpacetimeDB WASM module |
+| **M11 Improve** | Reputation-driven weight adjustment, strategy adaptation from prediction outcomes |
+
+### Recommended MAPS Skills
+
+| Skill | Use Case |
+|-------|----------|
+| `/foundation` | M0 preflight — confirm oracle domain, agent swarm topology, data sources |
+| `/shape` | Validate Multi-Agent swarm track vs single-agent approach |
+| `/define-agent` | Brief new agent types for expanded oracle coverage (e.g., NFT floor agents) |
+| `/design-experience` | UX design for swarm activity monitoring and prediction market interactions |
+| `/evaluate-agent++` | Phoenix/LangSmith tracing for off-chain agent reasoning observability |
+| `/observe-agent` | SpacetimeDB subscription-based real-time swarm monitoring |
+| `/improve-agent` | Reputation-driven agent improvement backlog from accuracy/de slashing |
+
+---
+
 ## CHP Governance
 
 This repository is hardened with the [Consensus Hardening Protocol (CHP)](https://codeberg.org/cubiczan/consensus-hardening-protocol), Cubiczan's decision-governance layer for multi-agent AI systems.
