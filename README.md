@@ -285,3 +285,17 @@ cognitive-mesh-orchestrator 0.1.0 | [Protocol Docs](https://codeberg.org/cubicza
   review's porting note); or audits move to session granularity, where the
   per-event-verifiability condition no longer holds.
 
+
+- **Row 3 (tiered market-data resolution) — reversed.** The price swarm
+  already reads three independent parallel sources
+  (`agents/orchestrator/main.py` `price_sources`: CoinGecko, DEX
+  aggregator, news sentiment) with a flat staleness-bounded price cache
+  (`coingecko_agent.py` `_price_cache`), but nothing tiers live → cache →
+  mock with per-read provenance, and no mock tier exists to refuse. The
+  row's own settled conditions fire: every source is a free/fast public
+  API (tiers 2–3 would be dead weight) and the surface is headless —
+  agents vote, no human reads a provenance badge. Revisit when a source
+  becomes paid/fragile enough that denial degrades the swarm, or when a
+  human-facing provenance surface appears — then add the tiered
+  provenance read via the canonical tiered-provenance module ported from
+  the DeFi family reference, never a second package.
