@@ -245,3 +245,25 @@ suite against the native binary (plus a `CHP_GATE_BIN`-resolution check).
 ### CHP Version
 cognitive-mesh-orchestrator 0.1.0 | [Protocol Docs](https://codeberg.org/cubiczan/consensus-hardening-protocol)
 
+### Propagation notes (wave B)
+
+- **Row 4 (calibration feedback loop) — adopted.** `agents/shared/calibration.py`
+  implements the Brier→softmax loop adapted to continuous price consensus: each
+  round's submissions are scored against the realized price (externally supplied
+  when an oracle feed lands; otherwise the following round's consensus value
+  proxies it, recorded as `next_consensus` in the outcome log), and reputation
+  weights are updated between rounds by a bounded softmax blend
+  (`agents/orchestrator/main.py` `_on_consensus`, learning rate hard-capped at
+  0.5, reputations clamped to [0.05, 1.0]). The uninformative participation
+  boost this callback previously applied was removed — it drifted reputations
+  upward with no accuracy signal. Reopening condition (matrix): outcomes rare,
+  slow, or subjective.
+- **Row 11 (on-chain identity + off-chain blob state) — reversed.** SwarmFi runs
+  on Solana/Initia surfaces, not Sui; Walrus SDK state pointers are Sui-side and
+  the port is heavy for a non-Sui stack. The row's own reversal condition also
+  fires: consensus audits are already chain-verifiable per event — every round's
+  consensus price is submitted on-chain (`agents/orchestrator/main.py`
+  `submit_price`) — so a session-level blob pointer would trade per-event
+  verifiability for cost. Reopens if a Sui-family venue is adopted or audits
+  move to session-granularity.
+
