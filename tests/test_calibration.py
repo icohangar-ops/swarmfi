@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from types import SimpleNamespace
 
 import pytest
 from shared.calibration import (
@@ -138,3 +139,118 @@ def test_outcome_log_is_json_replayable():
     assert scored_entry["realized_source"] == "external"
     roundtrip = json.loads(json.dumps(scored_entry))
     assert roundtrip["agents"][0]["abs_error"] == pytest.approx(0.5)
+
+
+# ── Orchestrator wiring (agents/orchestrator/main.py) ────────────────────
+#
+# SwarmFiOrchestrator.__init__ boots chain clients, but the provenance
+# contract under test lives in _on_consensus. Bind the real (unbound)
+# method to a stub carrying exactly the attributes it touches so the
+# wiring itself is what gets tested.
+
+
+def _wiring_stub():
+    """Build (stub, submissions, calibration_loop) for the wiring tests."""
+    from types import SimpleNamespace
+
+    from shared.calibration import CalibrationLoop
+
+    loop = CalibrationLoop()
+    submissions = [
+        SimpleNamespace(agent_address="a", price=100.0),
+        SimpleNamespace(agent_address="b", price=104.0),
+    ]
+    stub = SimpleNamespace(
+        calibration=loop,
+        _consensus_count=1,
+        _external_realized_price=None,
+        agent_manager=SimpleNamespace(
+            get_pending_submissions=lambda: submissions,
+            get_reputations=lambda: {"a": 0.5, "b": 0.5},
+            set_reputation=lambda addr, rep: None,
+        ),
+    )
+    return stub, submissions, loop
+
+
+def _consensus_result(price=102.0):
+    from shared.types import ConsensusResult
+
+    return ConsensusResult(asset_pair="INIT/USDC", consensus_price=price)
+
+
+def test_orchestrator_wiring_scores_consensus_only_rounds_as_next_consensus():
+    """No oracle landed -> scored against the next_consensus proxy.
+
+    Regression: _on_consensus passed consensus_price (a float that is never
+    None) as realized_price, labeling every scored entry 'external' and
+    making the proxy branch unreachable — freezing swarm consensus as
+    market truth in the outcome log that feeds reputation weights.
+    """
+    import asyncio
+
+    from orchestrator.main import SwarmFiOrchestrator
+
+    stub, submissions, loop = _wiring_stub()
+    result = _consensus_result(102.0)
+
+    # Round 1 parks unscored.
+    asyncio.run(SwarmFiOrchestrator._on_consensus(stub, result))
+    assert loop.history[0].scored is False
+
+    # Round 2 with no oracle price: round 1 must be scored against the
+    # next_consensus proxy (median of round 2's submissions = 102.1 —
+    # deliberately distinct from consensus_price 102.0 so the assertion
+    # proves which value was used), never labeled 'external'.
+    submissions[:] = [
+        SimpleNamespace(agent_address="a", price=102.0),
+        SimpleNamespace(agent_address="b", price=102.2),
+    ]
+    stub._consensus_count = 2
+    asyncio.run(SwarmFiOrchestrator._on_consensus(stub, result))
+    scored = loop.history[0]
+    assert scored.scored is True
+    assert scored.realized_source == "next_consensus"
+    assert scored.realized_price == pytest.approx(102.1)
+
+
+def test_orchestrator_wiring_records_external_price_only_when_oracle_lands():
+    """An oracle price lands -> recorded as 'external', consumed once."""
+    import asyncio
+
+    from orchestrator.main import SwarmFiOrchestrator
+
+    stub, submissions, loop = _wiring_stub()
+    result = _consensus_result(102.0)
+
+    # Round 1 parks; round 2 scores it against an oracle price that landed.
+    asyncio.run(SwarmFiOrchestrator._on_consensus(stub, result))
+    stub._consensus_count = 2
+    stub._external_realized_price = 101.0
+    asyncio.run(SwarmFiOrchestrator._on_consensus(stub, result))
+    scored = loop.history[0]
+    assert scored.scored is True
+    assert scored.realized_source == "external"
+    assert scored.realized_price == pytest.approx(101.0)
+    # Consumed exactly once: a stale oracle price must not re-fire.
+    assert stub._external_realized_price is None
+
+
+def test_external_replay_can_supersede_next_consensus_proxies():
+    """Consensus-only rounds stay supersede-able; oracle rounds stay distinct."""
+    loop = CalibrationLoop()
+    loop.on_consensus(1, {"a": 0.5}, [AgentOutcome("a", 100.0)])
+    loop.on_consensus(2, {"a": 0.5}, [AgentOutcome("a", 102.0)])
+    assert loop.history[0].scored is True
+    assert loop.history[0].realized_source == "next_consensus"
+
+    # A later round WITH a true oracle price records as external — and the
+    # proxy row keeps its next_consensus label, so a replay that supersedes
+    # proxy rows can correct it without touching oracle-scored rows.
+    loop.on_consensus(3, {"a": 0.5}, [AgentOutcome("a", 103.0)], realized_price=101.5)
+    assert loop.history[0].realized_source == "next_consensus"
+    assert loop.history[1].realized_source == "external"
+    # Round 3 is parked and unscored: its log entry has no source yet.
+    sources = [entry["realized_source"] for entry in loop.outcome_log()]
+    assert sources[:2] == ["next_consensus", "external"]
+    assert sources[2] is None

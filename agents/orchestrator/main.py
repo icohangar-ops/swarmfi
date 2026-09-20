@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import math
 import signal
 import sys
 import time
@@ -104,6 +105,11 @@ class SwarmFiOrchestrator:
         # Row-4 calibration loop: bounded softmax reputation updates between
         # consensus rounds (agents/shared/calibration.py).
         self.calibration = CalibrationLoop()
+        # External oracle price for the next calibration pass. None until a
+        # real resolution price lands (note_realized_price); never fabricated
+        # from consensus output — consensus_price is the swarm's own value,
+        # not an external realization.
+        self._external_realized_price: Optional[float] = None
 
         # Register consensus callback
         self.agent_manager.on_consensus(self._on_consensus)
@@ -367,11 +373,19 @@ class SwarmFiOrchestrator:
 
         submissions = self.agent_manager.get_pending_submissions()
         outcomes = [AgentOutcome(s.agent_address, s.price) for s in submissions]
+        # Provenance: consensus_price is the swarm's own output, not an
+        # external realization — passing it as realized_price would label
+        # every scored entry "external" and freeze swarm consensus as
+        # market truth in the outcome log. Pass an oracle price only when
+        # one actually landed (note_realized_price); otherwise None lets
+        # the loop record the honest next_consensus proxy.
+        external_price = self._external_realized_price
+        self._external_realized_price = None
         updated = self.calibration.on_consensus(
             self._consensus_count,
             self.agent_manager.get_reputations(),
             outcomes,
-            realized_price=result.consensus_price,
+            realized_price=external_price,
         )
         for address, reputation in updated.items():
             self.agent_manager.set_reputation(address, reputation)
@@ -381,6 +395,21 @@ class SwarmFiOrchestrator:
                 f"Calibration: round {last.round_index} scored against {last.realized_source} "
                 f"price {last.realized_price:.6f} over {len(last.agents)} agents"
             )
+
+
+    def note_realized_price(self, price: float) -> None:
+        """Record an external oracle price for the next calibration pass.
+
+        The hook a real oracle or resolution feed calls when a resolution
+        price lands. Consumed exactly once by the next ``_on_consensus``
+        and never derived from consensus output: until a feed is wired,
+        every scored round stays labeled next_consensus and a later
+        external replay can supersede it.
+        """
+        if math.isfinite(price) and price > 0:
+            self._external_realized_price = price
+        else:
+            logger.warning(f"Ignoring non-positive or non-finite oracle price: {price}")
 
 
 # ─── CLI Entry Point ───────────────────────────────────────────────────
