@@ -412,6 +412,28 @@ class AgentManager:
         """
         self._on_consensus_callbacks.append(callback)
 
+    def get_pending_submissions(self) -> List[PriceSubmission]:
+        """Snapshot of the round's submissions, valid inside consensus callbacks.
+
+        The calibration loop (row 4) scores these against the next round's
+        consensus; the buffer is cleared right after callbacks return.
+        """
+        return list(self._price_submissions)
+
+    def get_reputations(self) -> Dict[str, float]:
+        """Current reputation per agent address (calibration input)."""
+        return {
+            instance.info.address: instance.info.reputation
+            for instance in self._agents.values()
+        }
+
+    def set_reputation(self, address: str, reputation: float) -> None:
+        """Apply a calibrated reputation to the agent registered at `address`."""
+        for instance in self._agents.values():
+            if instance.info.address == address:
+                instance.info.reputation = reputation
+                return
+
     async def print_status(self) -> None:
         """Print a status dashboard of all agents to the console."""
         agents = await self.get_all_agents()

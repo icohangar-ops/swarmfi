@@ -13,6 +13,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import math
+import os
 import signal
 import sys
 import time
@@ -25,6 +27,7 @@ if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
 import click
+from shared.calibration import CalibrationLoop
 from shared.chain_interface import InitiaChainInterface
 from shared.chp_gate import SwarmfiChpGate
 from shared.config import Settings
@@ -99,6 +102,25 @@ class SwarmFiOrchestrator:
         self._tasks: list[asyncio.Task] = []
         self._start_time: float = 0.0
         self._consensus_count: int = 0
+
+        # Row-4 calibration loop: bounded softmax reputation updates between
+        # consensus rounds (agents/shared/calibration.py).
+        # Slash-state seam: on-chain slashing is the adversarial track. The
+        # operator supplies slashed addresses via SWARMFI_SLASHED_ADDRESSES
+        # (comma-separated) until the on-chain slash feed is wired here; the
+        # calibration loop never raises a slashed agent's reputation.
+        self.calibration = CalibrationLoop(
+            slashed_provider=lambda: {
+                s.strip()
+                for s in os.environ.get("SWARMFI_SLASHED_ADDRESSES", "").split(",")
+                if s.strip()
+            }
+        )
+        # External oracle price for the next calibration pass. None until a
+        # real resolution price lands (note_realized_price); never fabricated
+        # from consensus output — consensus_price is the swarm's own value,
+        # not an external realization.
+        self._external_realized_price: Optional[float] = None
 
         # Register consensus callback
         self.agent_manager.on_consensus(self._on_consensus)
@@ -347,18 +369,58 @@ class SwarmFiOrchestrator:
                 logger.error(f"Stigmergy display error: {e}")
 
     async def _on_consensus(self, result: ConsensusResult) -> None:
-        """Callback when consensus is reached.
+        """Calibrate agent reputations between rounds (row 4).
 
-        Args:
-            result: The consensus result.
+        The previous round's submissions are scored against this round's
+        consensus value (next-consensus proxy for the realized price —
+        when an external resolution price lands, the calibration loop
+        accepts it directly and supersedes the proxy), and reputation
+        weights are updated with a bounded softmax blend: a single noisy
+        round nudges weights, it cannot capture them. The participation
+        boost this callback previously applied is replaced — it drifted
+        reputations upward with no accuracy signal.
         """
-        # Update agent reputations based on participation
-        for agent_id, instance in self.agent_manager._agents.items():
-            if instance.info.address in result.participating_agents:
-                # Slightly boost reputation for participation
-                instance.info.reputation = min(
-                    1.0, instance.info.reputation + 0.01
-                )
+        from shared.calibration import AgentOutcome
+
+        submissions = self.agent_manager.get_pending_submissions()
+        outcomes = [AgentOutcome(s.agent_address, s.price) for s in submissions]
+        # Provenance: consensus_price is the swarm's own output, not an
+        # external realization — passing it as realized_price would label
+        # every scored entry "external" and freeze swarm consensus as
+        # market truth in the outcome log. Pass an oracle price only when
+        # one actually landed (note_realized_price); otherwise None lets
+        # the loop record the honest next_consensus proxy.
+        external_price = self._external_realized_price
+        self._external_realized_price = None
+        updated = self.calibration.on_consensus(
+            self._consensus_count,
+            self.agent_manager.get_reputations(),
+            outcomes,
+            realized_price=external_price,
+        )
+        for address, reputation in updated.items():
+            self.agent_manager.set_reputation(address, reputation)
+        if self.calibration.history and self.calibration.history[-1].scored:
+            last = self.calibration.history[-1]
+            logger.info(
+                f"Calibration: round {last.round_index} scored against {last.realized_source} "
+                f"price {last.realized_price:.6f} over {len(last.agents)} agents"
+            )
+
+
+    def note_realized_price(self, price: float) -> None:
+        """Record an external oracle price for the next calibration pass.
+
+        The hook a real oracle or resolution feed calls when a resolution
+        price lands. Consumed exactly once by the next ``_on_consensus``
+        and never derived from consensus output: until a feed is wired,
+        every scored round stays labeled next_consensus and a later
+        external replay can supersede it.
+        """
+        if math.isfinite(price) and price > 0:
+            self._external_realized_price = price
+        else:
+            logger.warning(f"Ignoring non-positive or non-finite oracle price: {price}")
 
 
 # ─── CLI Entry Point ───────────────────────────────────────────────────
