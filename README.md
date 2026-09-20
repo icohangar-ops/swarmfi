@@ -256,8 +256,15 @@ cognitive-mesh-orchestrator 0.1.0 | [Protocol Docs](https://codeberg.org/cubicza
   (`agents/orchestrator/main.py` `_on_consensus`, learning rate hard-capped at
   0.5, reputations clamped to [0.05, 1.0]). The uninformative participation
   boost this callback previously applied was removed — it drifted reputations
-  upward with no accuracy signal. Reopening condition (matrix): outcomes rare,
-  slow, or subjective.
+  upward with no accuracy signal. Provenance is honest at the wiring:
+  `_on_consensus` passes an oracle price only when one actually lands
+  (`note_realized_price`, consumed exactly once); consensus output is never
+  mistaken for an external realization, so a replay that supersedes
+  `next_consensus` rows can always correct proxy-scored entries. A herding
+  guard warns after `PROXY_RUN_WARNING_THRESHOLD` (10) consecutive
+  proxy-scored rounds with no external price — the proxy must stay the
+  fallback, not become the primary path. Reopening condition (matrix):
+  outcomes rare, slow, or subjective.
 - **Row 11 (on-chain identity + off-chain blob state) — reversed.** SwarmFi runs
   on Solana/Initia surfaces, not Sui; Walrus SDK state pointers are Sui-side and
   the port is heavy for a non-Sui stack. The row's own reversal condition also

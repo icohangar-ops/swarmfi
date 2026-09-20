@@ -7,6 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 from shared.calibration import (
+    PROXY_RUN_WARNING_THRESHOLD,
     AgentOutcome,
     CalibrationLoop,
     bounded_update,
@@ -254,3 +255,24 @@ def test_external_replay_can_supersede_next_consensus_proxies():
     sources = [entry["realized_source"] for entry in loop.outcome_log()]
     assert sources[:2] == ["next_consensus", "external"]
     assert sources[2] is None
+
+def test_proxy_run_warning_fires_once_at_threshold_and_external_resets(caplog):
+    """Herding guard: warn on the threshold crossing, reset on external."""
+    loop = CalibrationLoop()
+    reps = {"a": 0.5}
+    import logging
+
+    with caplog.at_level(logging.WARNING, logger="shared.calibration"):
+        for i in range(1, PROXY_RUN_WARNING_THRESHOLD + 2):
+            loop.on_consensus(i, reps, [AgentOutcome("a", 100.0 + i)])
+    warnings = [r for r in caplog.records if "consecutive proxy-scored" in r.message]
+    assert len(warnings) == 1  # exactly once, at the crossing
+    # An external price resets the run depth...
+    loop.on_consensus(
+        99, reps, [AgentOutcome("a", 100.0)], realized_price=100.5
+    )
+    assert loop.consecutive_proxy_rounds == 0
+    assert loop.history[-2].proxy_run_depth == 0
+    # ...and a fresh proxy run starts counting from 1.
+    loop.on_consensus(100, reps, [AgentOutcome("a", 100.2)])
+    assert loop.history[-2].proxy_run_depth == 1

@@ -30,6 +30,7 @@ value and applies bounded reputation updates through the agent manager.
 
 from __future__ import annotations
 
+import logging
 import math
 import time
 from dataclasses import dataclass
@@ -38,6 +39,13 @@ from typing import Any, Dict, List, Optional
 DEFAULT_LEARNING_RATE = 0.1
 DEFAULT_TEMPERATURE = 0.5
 MIN_REPUTATION = 0.05
+
+logger = logging.getLogger(__name__)
+# Herding guard (prelint concern 2): the next-consensus proxy reinforces
+# agreement with the swarm's own output. After this many consecutive
+# proxy-scored rounds with no external price, warn — the proxy is becoming
+# the primary path, not the fallback.
+PROXY_RUN_WARNING_THRESHOLD = 10
 
 
 @dataclass
@@ -58,6 +66,7 @@ class RoundOutcome:
     agents: List[AgentOutcome]
     realized_price: Optional[float] = None  # None until the next round resolves it
     realized_source: Optional[str] = None  # "next_consensus" or "external"
+    proxy_run_depth: Optional[int] = None  # consecutive proxy rounds at scoring time
     scored: bool = False
 
 
@@ -149,6 +158,7 @@ class CalibrationLoop:
         self.temperature = temperature
         self._pending: Optional[RoundOutcome] = None
         self.history: List[RoundOutcome] = []
+        self.consecutive_proxy_rounds = 0
 
     def on_consensus(
         self,
@@ -172,7 +182,23 @@ class CalibrationLoop:
                 self._pending.agents = score_round(self._pending.agents, price)
                 self._pending.realized_price = price
                 self._pending.realized_source = source
+                if source == "external":
+                    self.consecutive_proxy_rounds = 0
+                else:
+                    self.consecutive_proxy_rounds += 1
+                self._pending.proxy_run_depth = self.consecutive_proxy_rounds
                 self._pending.scored = True
+                if (
+                    source == "next_consensus"
+                    and self._pending.proxy_run_depth == PROXY_RUN_WARNING_THRESHOLD
+                ):
+                    logger.warning(
+                        "%d consecutive proxy-scored rounds with no external "
+                        "price — reputation is being fed by swarm consensus "
+                        "(herding risk). Attach an external price feed or "
+                        "freeze updates.",
+                        self._pending.proxy_run_depth,
+                    )
                 shares = softmax_reputations(self._pending.agents, self.temperature)
                 updated = bounded_update(updated, shares, self.learning_rate)
 
@@ -203,6 +229,7 @@ class CalibrationLoop:
                 "submitted_at": r.submitted_at,
                 "realized_price": r.realized_price,
                 "realized_source": r.realized_source,
+                "proxy_run_depth": r.proxy_run_depth,
                 "scored": r.scored,
                 "agents": [
                     {
