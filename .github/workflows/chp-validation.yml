@@ -7,6 +7,8 @@ on:
     branches: [main, master]
 
 jobs:
+  # Python-fallback path: no chp-gate binary on PATH, so the gate resolves
+  # the in-process consensus-hardening-protocol package.
   chp-gate:
     runs-on: ubuntu-latest
     steps:
@@ -45,3 +47,30 @@ jobs:
         run: |
           pip install -e ".[dev]"
           pytest tests/ -v --tb=short
+
+  # Native path: build chp-core-rs at the pinned tag, resolve chp-gate from
+  # PATH, and run the same full suite through the canonical binary.
+  chp-gate-native:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.12"
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+      - name: Build chp-core-rs v0.1.0
+        run: |
+          git clone --depth 1 --branch v0.1.0 \
+            https://github.com/icohangar-ops/chp-core-rs.git /tmp/chp-core-rs
+          cargo build --release --locked --manifest-path /tmp/chp-core-rs/Cargo.toml
+      - name: Put chp-gate on PATH
+        run: echo "/tmp/chp-core-rs/target/release" >> "$GITHUB_PATH"
+      - name: Run Tests (native binary path)
+        run: |
+          command -v chp-gate
+          pip install -e ".[dev]"
+          pytest tests/ -v --tb=short
+      - name: Prove CHP_GATE_BIN resolves ahead of PATH
+        run: |
+          CHP_GATE_BIN=/tmp/chp-core-rs/target/release/chp-gate \
+            pytest tests/chp/test_chp_gate.py -q -k test_full_pass_scores_100

@@ -208,6 +208,32 @@ This repository is hardened with the [Consensus Hardening Protocol (CHP)](https:
 - **Foundation Threshold**: 85
 - **CFO Accuracy Guard**: Disabled
 
+### Native Gate Binary (chp-core-rs)
+
+The gate's Profile A decisions (R0 evaluation, foundation floor and verdict,
+devil's-advocate validation, payload envelopes) come from the canonical native
+core [`icohangar-ops/chp-core-rs`](https://github.com/icohangar-ops/chp-core-rs),
+pinned at **v0.1.0** (main `794d61357100`). Its `chp-gate` binary speaks the
+newline-delimited JSON stdio contract (methods `evaluate_r0_gate`,
+`foundation_floor`, `foundation_verdict`, `evaluate_devils_advocate`,
+`payload_build`, `payload_validate`, `ledger_*`); where the binary and the
+Python copy disagree, the pinned binary's semantics win.
+
+Resolution order, checked per gate operation:
+
+1. `CHP_GATE_BIN` — explicit path to the binary (must be an executable file; a
+   broken value logs a warning and falls through)
+2. `chp-gate` on `PATH`
+3. **Fallback:** the in-process Python package
+   (`consensus-hardening-protocol==0.1.1`) — used only when no binary resolves
+
+A resolvable binary that fails at call time raises `GateUnavailable` and the
+gate fails closed (the submission is refused) — it never silently degrades to
+the Python fallback mid-flight. CI proves both paths: the `chp-gate` job runs
+the suite on the Python fallback, and the `chp-gate-native` job builds
+chp-core-rs at the pinned tag, puts the binary on `PATH`, and runs the same
+suite against the native binary (plus a `CHP_GATE_BIN`-resolution check).
+
 ### Compliance Artifacts
 | File | Purpose |
 |------|---------|

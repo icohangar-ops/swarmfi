@@ -6,17 +6,26 @@ erp-control-plane commit 70678cc, api/genbi/chp.py):
 - **Option (a) rejected.** icohangar-ops/chp-rust-pack was checked first: it
   is a Node marketing/asset pack (landing pages, memos, ``pack.json``), not a
   native Rust CHP crate — there is nothing to link into a Rust build.
-- **Option (b) chosen.** The pure-Python package
-  ``consensus-hardening-protocol==0.1.1`` gates the swarm. The verified
+- **Option (b) chosen, native core first.** The canonical Profile A substrate
+  is now the ``chp-gate`` binary from icohangar-ops/chp-core-rs, pinned at
+  v0.1.0 (main 794d61357100): each gate operation resolves the binary via
+  ``CHP_GATE_BIN`` then ``chp-gate`` on ``PATH`` and drives its JSON-line
+  stdio protocol (evaluate_r0_gate, foundation_floor, foundation_verdict,
+  evaluate_devils_advocate, payload_build, payload_validate, ledger_*).
+  Where the binary and the Python copy disagree, the pinned binary's
+  semantics win. The pure-Python package
+  ``consensus-hardening-protocol==0.1.1`` remains the documented fallback
+  and gates in-process only when no binary resolves. The verified
   capital-moving path in this repository is Python
   (``orchestrator.main._consensus_loop`` ->
   ``agent_manager.compute_and_submit_consensus`` ->
   ``chain_interface.submit_price`` — the on-chain oracle post that marks
-  perp positions and drives vault rebalances), so the gate runs in-process:
-  a subprocess hop buys nothing when the caller is Python. A stdlib JSON
+  perp positions and drives vault rebalances); it spawns the binary per
+  gate operation through the same public interface. A stdlib JSON
   subprocess entry point is still provided (``python -m shared.chp_gate``)
-  so a future Rust (or other non-Python) swarm process can drive the same
-  gate as a small Python bridge script.
+  so a non-Python swarm process can drive the same gate — that bridge now
+  prefers the native binary too and drops to the Python package only as
+  the fallback.
 - **Option (c) not taken.** An MCP client to ``@cubiczan/chp-mcp`` adds a
   server dependency and async transport to a deterministic, synchronous
   decision — heavier than the loop needs.
@@ -68,6 +77,8 @@ import logging
 import math
 import os
 import re
+import shutil
+import subprocess
 import threading
 import uuid
 from dataclasses import asdict, dataclass, field
@@ -115,7 +126,101 @@ _ENVELOPE_ROUTE = "ORACLE_POST"
 
 
 class GateUnavailable(RuntimeError):
-    """The CHP package is missing — the gate refuses to run fail-closed."""
+    """The gate substrate is unavailable — the gate refuses to run fail-closed.
+
+    Raised when the Python CHP package is missing (fallback mode) or when a
+    resolved native binary fails at call time (spawn error, timeout,
+    unparseable or error response). Callers refuse the submission; the gate
+    never degrades silently to the other substrate.
+    """
+
+
+# --------------------------------------------------------------------------
+# Native substrate: the canonical chp-core-rs binary, with the in-repo
+# Python package as the documented fallback. Resolution order per operation:
+# CHP_GATE_BIN (executable file), then `chp-gate` on PATH, then Python.
+# --------------------------------------------------------------------------
+
+#: Canonical native core pin — where the binary and the Python fallback
+#: disagree on a response value, THIS version's semantics win.
+CHP_CORE_RS_PIN = "v0.1.0"
+
+# The binary answers each method in microseconds; a longer wait is a wedged
+# process, not a slow decision.
+_NATIVE_TIMEOUT_S = 10.0
+
+
+def resolve_gate_bin() -> Optional[str]:
+    """Resolve the native chp-gate binary: CHP_GATE_BIN first, then PATH.
+
+    ``None`` is the documented signal for the Python fallback. A
+    ``CHP_GATE_BIN`` naming a missing or non-executable file logs a warning
+    and falls through to ``PATH``; a resolvable binary that fails at *call
+    time* raises :class:`GateUnavailable` instead of degrading to Python.
+    """
+    env_bin = os.environ.get("CHP_GATE_BIN", "").strip()
+    if env_bin:
+        if os.path.isfile(env_bin) and os.access(env_bin, os.X_OK):
+            return env_bin
+        logger.warning(
+            "CHP_GATE_BIN=%r is not an executable file — falling through to PATH",
+            env_bin,
+        )
+    return shutil.which("chp-gate")
+
+
+def native_gate_call(binary: str, method: str, params: Dict[str, Any]) -> Dict[str, Any]:
+    """One chp-gate protocol round trip: one JSON request line in, one out.
+
+    The binary is stateless and microsecond-cheap, so it is spawned per call
+    rather than kept warm. An ``{"error": ...}`` response to a known method
+    is a contract bug, not a recoverable condition — it surfaces as
+    :class:`GateUnavailable` so every caller fails closed.
+    """
+    request = json.dumps({"method": method, "params": params}) + "\n"
+    try:
+        proc = subprocess.run(
+            [binary],
+            input=request,
+            capture_output=True,
+            encoding="utf-8",
+            timeout=_NATIVE_TIMEOUT_S,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise GateUnavailable(f"chp-gate binary {binary!r} failed: {exc}") from exc
+    lines = [line for line in proc.stdout.splitlines() if line.strip()]
+    if proc.returncode != 0 or not lines:
+        raise GateUnavailable(
+            f"chp-gate binary {binary!r} produced no response "
+            f"(exit {proc.returncode}): {proc.stderr.strip()[:200]}"
+        )
+    try:
+        response = json.loads(lines[-1])
+    except json.JSONDecodeError as exc:
+        raise GateUnavailable(
+            f"chp-gate binary {binary!r} sent an unparseable response: {exc}"
+        ) from exc
+    if "error" in response:
+        raise GateUnavailable(f"chp-gate rejected {method}: {response['error']}")
+    return response
+
+
+def seal_payload_envelope(body: str, route: str) -> str:
+    """Render the CHP payload envelope — native payload_build, Python fallback."""
+    binary = resolve_gate_bin()
+    if binary is None:
+        return build_payload_envelope(body, route=route).render()
+    rendered = native_gate_call(binary, "payload_build", {"body": body, "route": route})
+    return str(rendered["rendered"])
+
+
+def validate_payload_envelope_structure(rendered: str) -> bool:
+    """Structure-only envelope check — native payload_validate, Python fallback."""
+    binary = resolve_gate_bin()
+    if binary is None:
+        return validate_payload_envelope(rendered)
+    response = native_gate_call(binary, "payload_validate", {"rendered": rendered})
+    return bool(response["valid"])
 
 
 @dataclass(frozen=True)
@@ -188,7 +293,7 @@ class DecisionLedger:
         digest = hashlib.sha256(body.encode("utf-8")).hexdigest()
         return {
             **entry,
-            "envelope_valid": validate_payload_envelope(entry.get("envelope", "")),
+            "envelope_valid": validate_payload_envelope_structure(entry.get("envelope", "")),
             "integrity_valid": digest == entry.get("body_sha256"),
         }
 
@@ -242,7 +347,13 @@ class SwarmfiChpGate:
     @property
     def floor(self) -> int:
         """DeFi floor: the package's domain floor, raised by R0_CONFIG when stricter."""
-        floor = foundation_floor(self.domain)
+        binary = resolve_gate_bin()
+        if binary is None:
+            floor = foundation_floor(self.domain)
+        else:
+            floor = int(
+                native_gate_call(binary, "foundation_floor", {"domain": self.domain})["floor"]
+            )
         try:
             match = _PASS_THRESHOLD.search(self.config_path.read_text(encoding="utf-8"))
         except OSError:
@@ -280,7 +391,7 @@ class SwarmfiChpGate:
             or abs(price / last - 1.0) <= self.max_price_move
         )
 
-        evaluation = evaluate_r0_gate(
+        return self._r0_evaluation(
             solvable=(
                 math.isfinite(price)
                 and price > 0
@@ -295,7 +406,37 @@ class SwarmfiChpGate:
             valid=math.isfinite(price) and price > 0 and within_move_bound,
             worth_it=confidence >= self.min_confidence,
         )
-        return evaluation
+
+    @staticmethod
+    def _r0_evaluation(
+        *, solvable: bool, scoped: bool, valid: bool, worth_it: bool
+    ) -> GateEvaluation:
+        """R0 verdicts from the native evaluate_r0_gate, or the Python gates.
+
+        Both return the capitalized rows in declaration order and the
+        PASS/HALT aggregation; the native rows arrive as ``[key, value]``
+        pairs and are folded into the same ``GateEvaluation`` shape, so
+        callers see one type.
+        """
+        binary = resolve_gate_bin()
+        if binary is None:
+            return evaluate_r0_gate(
+                solvable=solvable, scoped=scoped, valid=valid, worth_it=worth_it
+            )
+        response = native_gate_call(
+            binary,
+            "evaluate_r0_gate",
+            {
+                "solvable": solvable,
+                "scoped": scoped,
+                "valid": valid,
+                "worth_it": worth_it,
+            },
+        )
+        return GateEvaluation(
+            results={key: verdict for key, verdict in response["results"]},
+            verdict=Verdict(response["verdict"]),
+        )
 
     # ------------------------------------------------------------ foundation
     def assess_foundation(
@@ -536,29 +677,120 @@ class SwarmfiChpGate:
             ],
         )
 
-        # Fresh orchestrator per case: the protocol registry is in-memory state
-        # we do not rely on — the decision ledger is the durable record.
+        binary = resolve_gate_bin()
+        if binary is not None:
+            return case, self._run_session_native(
+                binary, case=case, disclosure=disclosure, attack=attack
+            )
+        # Fallback (no native binary): the Python package runs the session
+        # in-process. Fresh orchestrator per case: the protocol registry is
+        # in-memory state we do not rely on — the decision ledger is the
+        # durable record.
         report = CHPOrchestrator().run_initial_session(
             case=case, foundation_disclosure=disclosure, foundation_attack=attack
         )
         return case, report
 
+    @staticmethod
+    def _run_session_native(
+        binary: str,
+        *,
+        case: DecisionCase,
+        disclosure: FoundationDisclosure,
+        attack: FoundationAttack,
+    ) -> CHPReport:
+        """The session's reachable effects, decided by the chp-gate binary.
+
+        run_initial_session's remaining branches are unreachable for a
+        gate-constructed case: the registry is fresh (context PROCEED),
+        model parity defaults to MINOR, and the session-internal R0
+        recomputation passes whenever the loop's own R0 gate passed (the
+        case carries scope, current state, and high stakes). What downstream
+        code observes is the devil's-advocate validation, the foundation
+        verdict, and the foundation_score/status assignment — driven here by
+        the binary's evaluate_devils_advocate and foundation_verdict. The
+        chp package's dataclasses remain the shared value shapes; every
+        Profile A decision comes from the binary. The binary's method
+        vocabulary does not expose disclosure/attack pair validation, so
+        the native path relies on those texts being gate-constructed
+        constants.
+        """
+        devil = native_gate_call(
+            binary,
+            "evaluate_devils_advocate",
+            {
+                # build_phase0_devils_advocate's field mapping, evaluated here
+                # so the binary validates exactly what the Python round holds.
+                "why_direction_wrong": attack.vulnerability_strike,
+                "what_not_seeing": (
+                    disclosure.invalidation_conditions[0]
+                    if disclosure.invalidation_conditions
+                    else "The invalidation path is under-specified."
+                ),
+                "false_consensus_risk": (
+                    "Foundation agreement may reflect shared optimism unless "
+                    "the disclosed weak assumptions survive attack."
+                ),
+                "structural_vulnerabilities": [
+                    v
+                    for v in (
+                        attack.vulnerability_strike,
+                        *attack.assumption_attacks[:2],
+                    )
+                    if v
+                ][:3],
+            },
+        )
+        if devil["errors"]:
+            raise ValueError("; ".join(devil["errors"]))
+        foundation = native_gate_call(
+            binary,
+            "foundation_verdict",
+            {"score": attack.foundation_score, "domain": case.domain},
+        )
+        case.foundation_score = attack.foundation_score
+        case.status = (
+            SessionStatus.REFRAME_REQUIRED
+            if foundation["verdict"] == Verdict.REFRAME.value
+            else SessionStatus.EXPLORING
+        )
+        return CHPReport(
+            case=case,
+            foundation_disclosure=disclosure,
+            foundation_attack=attack,
+            r0_verdict=Verdict.PASS,
+            foundation_verdict=Verdict(foundation["verdict"]),
+            initial_packet="",
+        )
+
     # ------------------------------------------------------------- human lock
     def lock(self, case: DecisionCase, confirmed_by: str) -> SessionStatus:
-        """Third-party confirmation: PROVISIONAL_LOCK -> LOCKED."""
-        return apply_third_party_validation(
-            case,
-            ThirdPartyValidation(
-                validator=confirmed_by,
-                item=case.decision_id,
-                challenge=(
-                    "Confirm the consensus price post is solvable from the "
-                    "portfolio state and cleared the DeFi foundation floor"
-                ),
-                result=ValidationResult.CONFIRM,
-                rationale="Named confirmer approved the oracle post via the swarm gate",
+        """Third-party confirmation: PROVISIONAL_LOCK -> LOCKED.
+
+        The binary's method vocabulary has no third-party-lock method — the
+        lock is a case-state transition — so its reference semantics
+        (status guard, validation log, CONFIRM -> LOCKED) run locally on the
+        native path; the Python package applies them on the fallback.
+        """
+        validation = ThirdPartyValidation(
+            validator=confirmed_by,
+            item=case.decision_id,
+            challenge=(
+                "Confirm the consensus price post is solvable from the "
+                "portfolio state and cleared the DeFi foundation floor"
             ),
+            result=ValidationResult.CONFIRM,
+            rationale="Named confirmer approved the oracle post via the swarm gate",
         )
+        if resolve_gate_bin() is None:
+            return apply_third_party_validation(case, validation)
+        if case.status != SessionStatus.PROVISIONAL_LOCK:
+            raise ValueError("third-party validation requires PROVISIONAL_LOCK status")
+        case.third_party_log.append(validation)
+        case.status = SessionStatus.LOCKED
+        if validation.item not in case.locked_decisions:
+            case.locked_decisions.append(validation.item)
+        return case.status
 
     # ------------------------------------------------------------------ gate
     def allow_submission(
@@ -734,7 +966,7 @@ class SwarmfiChpGate:
                     "reason": reason,
                     "body": body,
                     "body_sha256": hashlib.sha256(body.encode("utf-8")).hexdigest(),
-                    "envelope": build_payload_envelope(body, route=_ENVELOPE_ROUTE).render(),
+                    "envelope": seal_payload_envelope(body, _ENVELOPE_ROUTE),
                 }
             )
         logger.error("CHP gate refusal (%s): %s", kind, reason)
@@ -789,7 +1021,7 @@ class SwarmfiChpGate:
             "reason": reason,
             "body": body,
             "body_sha256": hashlib.sha256(body.encode("utf-8")).hexdigest(),
-            "envelope": build_payload_envelope(body, route=_ENVELOPE_ROUTE).render(),
+            "envelope": seal_payload_envelope(body, _ENVELOPE_ROUTE),
         }
         self.ledger.append(entry)
         return entry
@@ -799,6 +1031,9 @@ class SwarmfiChpGate:
 # Subprocess bridge: `python -m shared.chp_gate` (run from the agents/ dir).
 # Reads one JSON request on stdin, writes one JSON verdict on stdout — the
 # small Python gate script a non-Python (e.g. Rust) swarm process can exec.
+# Its external contract is frozen (tests pin it); internally the gate now
+# resolves the native chp-gate binary first (CHP_GATE_BIN, then PATH) and
+# the in-process Python package is the documented fallback.
 # Request: {"consensus": {...ConsensusResult fields...}, "submissions": [...],
 #           "agents": [...optional...], "last_posted_price": number|null,
 #           "max_participants": int|null}
