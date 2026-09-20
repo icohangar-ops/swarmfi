@@ -25,6 +25,7 @@ if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
 import click
+from shared.calibration import CalibrationLoop
 from shared.chain_interface import InitiaChainInterface
 from shared.chp_gate import SwarmfiChpGate
 from shared.config import Settings
@@ -99,6 +100,10 @@ class SwarmFiOrchestrator:
         self._tasks: list[asyncio.Task] = []
         self._start_time: float = 0.0
         self._consensus_count: int = 0
+
+        # Row-4 calibration loop: bounded softmax reputation updates between
+        # consensus rounds (agents/shared/calibration.py).
+        self.calibration = CalibrationLoop()
 
         # Register consensus callback
         self.agent_manager.on_consensus(self._on_consensus)
@@ -347,18 +352,35 @@ class SwarmFiOrchestrator:
                 logger.error(f"Stigmergy display error: {e}")
 
     async def _on_consensus(self, result: ConsensusResult) -> None:
-        """Callback when consensus is reached.
+        """Calibrate agent reputations between rounds (row 4).
 
-        Args:
-            result: The consensus result.
+        The previous round's submissions are scored against this round's
+        consensus value (next-consensus proxy for the realized price —
+        when an external resolution price lands, the calibration loop
+        accepts it directly and supersedes the proxy), and reputation
+        weights are updated with a bounded softmax blend: a single noisy
+        round nudges weights, it cannot capture them. The participation
+        boost this callback previously applied is replaced — it drifted
+        reputations upward with no accuracy signal.
         """
-        # Update agent reputations based on participation
-        for agent_id, instance in self.agent_manager._agents.items():
-            if instance.info.address in result.participating_agents:
-                # Slightly boost reputation for participation
-                instance.info.reputation = min(
-                    1.0, instance.info.reputation + 0.01
-                )
+        from shared.calibration import AgentOutcome
+
+        submissions = self.agent_manager.get_pending_submissions()
+        outcomes = [AgentOutcome(s.agent_address, s.price) for s in submissions]
+        updated = self.calibration.on_consensus(
+            self._consensus_count,
+            self.agent_manager.get_reputations(),
+            outcomes,
+            realized_price=result.consensus_price,
+        )
+        for address, reputation in updated.items():
+            self.agent_manager.set_reputation(address, reputation)
+        if self.calibration.history and self.calibration.history[-1].scored:
+            last = self.calibration.history[-1]
+            logger.info(
+                f"Calibration: round {last.round_index} scored against {last.realized_source} "
+                f"price {last.realized_price:.6f} over {len(last.agents)} agents"
+            )
 
 
 # ─── CLI Entry Point ───────────────────────────────────────────────────
