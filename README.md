@@ -263,8 +263,16 @@ cognitive-mesh-orchestrator 0.1.0 | [Protocol Docs](https://codeberg.org/cubicza
   `next_consensus` rows can always correct proxy-scored entries. A herding
   guard warns after `PROXY_RUN_WARNING_THRESHOLD` (10) consecutive
   proxy-scored rounds with no external price — the proxy must stay the
-  fallback, not become the primary path. Reopening condition (matrix):
-  outcomes rare, slow, or subjective.
+  fallback, not become the primary path. The loop also refuses to restore
+  slashed agents: on-chain slashing (stake forfeiture for deviation or
+  dishonesty) writes the reputation the adversarial track depends on, so
+  `bounded_update` takes the slash state (`CalibrationLoop`
+  `slashed_provider`; operator seam `SWARMFI_SLASHED_ADDRESSES` until the
+  on-chain slash feed is wired) and never blends a slashed agent's
+  reputation above its current value — accurate-looking post-slash
+  submissions cannot partially undo a slash, while downward adjustments
+  still apply. Reopening condition (matrix): outcomes rare, slow, or
+  subjective.
 - **Row 11 (on-chain identity + off-chain blob state) — reversed.** SwarmFi runs
   on Solana/Initia surfaces, not Sui; Walrus SDK state pointers are Sui-side and
   the port is heavy for a non-Sui stack. The row's own reversal condition also

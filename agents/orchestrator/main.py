@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import json
 import math
+import os
 import signal
 import sys
 import time
@@ -104,7 +105,17 @@ class SwarmFiOrchestrator:
 
         # Row-4 calibration loop: bounded softmax reputation updates between
         # consensus rounds (agents/shared/calibration.py).
-        self.calibration = CalibrationLoop()
+        # Slash-state seam: on-chain slashing is the adversarial track. The
+        # operator supplies slashed addresses via SWARMFI_SLASHED_ADDRESSES
+        # (comma-separated) until the on-chain slash feed is wired here; the
+        # calibration loop never raises a slashed agent's reputation.
+        self.calibration = CalibrationLoop(
+            slashed_provider=lambda: {
+                s.strip()
+                for s in os.environ.get("SWARMFI_SLASHED_ADDRESSES", "").split(",")
+                if s.strip()
+            }
+        )
         # External oracle price for the next calibration pass. None until a
         # real resolution price lands (note_realized_price); never fabricated
         # from consensus output — consensus_price is the swarm's own value,

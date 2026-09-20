@@ -276,3 +276,39 @@ def test_proxy_run_warning_fires_once_at_threshold_and_external_resets(caplog):
     # ...and a fresh proxy run starts counting from 1.
     loop.on_consensus(100, reps, [AgentOutcome("a", 100.2)])
     assert loop.history[-2].proxy_run_depth == 1
+
+# ── Slash guard: bounded_update never raises a slashed agent ─────────────
+
+
+def test_bounded_update_never_raises_a_slashed_agent():
+    current = {"slashed": 0.2, "clean": 0.2}
+    target = {"slashed": 0.7, "clean": 0.3}
+    blended = bounded_update(current, target, 0.5, slashed={"slashed"})
+    # Perfect-looking post-slash submissions: capped at the slashed value.
+    assert blended["slashed"] == pytest.approx(0.2)
+    # The non-slashed agent under the same target still moves.
+    assert blended["clean"] == pytest.approx(0.25)
+
+
+def test_bounded_update_slash_guard_allows_downward_moves():
+    current = {"slashed": 0.5}
+    blended = bounded_update(current, {"slashed": 0.1}, 0.5, slashed={"slashed"})
+    assert blended["slashed"] == pytest.approx(0.3)  # downward still applies
+
+
+def test_calibration_loop_slash_guard_holds_across_rounds():
+    """Perfect post-slash submissions never restore the slashed agent.
+
+    Regression (prelint Caution): bounded_update treated ANY current
+    reputation as the prior, so an accurate post-slash agent was blended
+    back up every round — silently partially restoring the slash and
+    undermining the adversarial-slashing guarantee.
+    """
+    perfect = [AgentOutcome("a", 100.0), AgentOutcome("c", 100.0)]
+    loop = CalibrationLoop(slashed_provider=lambda: {"a"})
+    reps = {"a": 0.2, "c": 0.2}
+    for round_index in range(1, 11):
+        reps = loop.on_consensus(round_index, reps, perfect)
+        assert reps["a"] <= 0.2 + 1e-12  # never restored, any number of rounds
+    assert reps["a"] == pytest.approx(0.2)
+    assert reps["c"] > 0.2  # same feed: the non-slashed agent still calibrates

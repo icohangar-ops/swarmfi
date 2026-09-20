@@ -33,8 +33,9 @@ from __future__ import annotations
 import logging
 import math
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import AbstractSet, Any, Dict, List, Optional
 
 DEFAULT_LEARNING_RATE = 0.1
 DEFAULT_TEMPERATURE = 0.5
@@ -119,6 +120,7 @@ def bounded_update(
     reputations: Dict[str, float],
     target: Dict[str, float],
     learning_rate: float = DEFAULT_LEARNING_RATE,
+    slashed: Optional[AbstractSet[str]] = None,
 ) -> Dict[str, float]:
     """Blend current reputations toward the round's softmax shares.
 
@@ -126,7 +128,13 @@ def bounded_update(
     [MIN_REPUTATION, 1.0]. Agents absent from one side keep the other
     side's value (new agents join at the target share; departed agents
     keep their last reputation rather than being erased).
+
+    Slash guard: an address in `slashed` is never blended above its
+    current value — a reputation just written by an on-chain slash must
+    not be silently restored by accurate-looking post-slash submissions.
+    Downward adjustments still apply (the guard caps, it does not freeze).
     """
+    slashed_set = slashed if slashed is not None else frozenset()
     lr = min(max(learning_rate, 0.0), 0.5)  # hard bound: one round cannot dominate
     blended = dict(reputations)
     for addr in set(reputations) | set(target):
@@ -137,7 +145,10 @@ def bounded_update(
         elif new is None:
             blended[addr] = old
         else:
-            blended[addr] = min(max((1 - lr) * old + lr * new, MIN_REPUTATION), 1.0)
+            value = min(max((1 - lr) * old + lr * new, MIN_REPUTATION), 1.0)
+            if addr in slashed_set:
+                value = min(value, old)  # never raise a slashed agent
+            blended[addr] = value
     return blended
 
 
@@ -153,12 +164,22 @@ class CalibrationLoop:
         self,
         learning_rate: float = DEFAULT_LEARNING_RATE,
         temperature: float = DEFAULT_TEMPERATURE,
+        slashed_provider: Optional[Callable[[], AbstractSet[str]]] = None,
     ) -> None:
         self.learning_rate = learning_rate
         self.temperature = temperature
+        # Slash-state source wired by the operator/orchestrator (on-chain
+        # slashing is the adversarial track); the loop never guesses it.
+        self._slashed_provider = slashed_provider
         self._pending: Optional[RoundOutcome] = None
         self.history: List[RoundOutcome] = []
         self.consecutive_proxy_rounds = 0
+
+    def _slashed_addresses(self) -> frozenset:
+        if self._slashed_provider is None:
+            return frozenset()
+        result = self._slashed_provider()
+        return frozenset(result) if result is not None else frozenset()
 
     def on_consensus(
         self,
@@ -200,7 +221,9 @@ class CalibrationLoop:
                         self._pending.proxy_run_depth,
                     )
                 shares = softmax_reputations(self._pending.agents, self.temperature)
-                updated = bounded_update(updated, shares, self.learning_rate)
+                updated = bounded_update(
+                    updated, shares, self.learning_rate, slashed=self._slashed_addresses()
+                )
 
         # Park this round for the next call to score.
         self._pending = RoundOutcome(
