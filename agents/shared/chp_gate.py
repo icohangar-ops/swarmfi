@@ -1,0 +1,877 @@
+"""Gate-only CHP integration for the SwarmFi decision path.
+
+Integration decision (Phase 2 of the CHP rollout; pattern proven in
+erp-control-plane commit 70678cc, api/genbi/chp.py):
+
+- **Option (a) rejected.** icohangar-ops/chp-rust-pack was checked first: it
+  is a Node marketing/asset pack (landing pages, memos, ``pack.json``), not a
+  native Rust CHP crate — there is nothing to link into a Rust build.
+- **Option (b) chosen.** The pure-Python package
+  ``consensus-hardening-protocol==0.1.1`` gates the swarm. The verified
+  capital-moving path in this repository is Python
+  (``orchestrator.main._consensus_loop`` ->
+  ``agent_manager.compute_and_submit_consensus`` ->
+  ``chain_interface.submit_price`` — the on-chain oracle post that marks
+  perp positions and drives vault rebalances), so the gate runs in-process:
+  a subprocess hop buys nothing when the caller is Python. A stdlib JSON
+  subprocess entry point is still provided (``python -m shared.chp_gate``)
+  so a future Rust (or other non-Python) swarm process can drive the same
+  gate as a small Python bridge script.
+- **Option (c) not taken.** An MCP client to ``@cubiczan/chp-mcp`` adds a
+  server dependency and async transport to a deterministic, synchronous
+  decision — heavier than the loop needs.
+
+Gate shape (mirrors the erp-control-plane promotion gate):
+
+1. **R0 gate — before any capital-moving output.** The consensus price post
+   is *solvable* (a decision-grade consensus exists: finite positive price
+   with participating agents — the position is computable from the swarm /
+   portfolio state), *scoped* (a single well-formed asset pair with bounded
+   confidence and dispersion), *valid* (the target price is sane and, where
+   a last-posted state exists, within the configured move bound — the state
+   assertion that stands in for external golden-market parity), and
+   *worth_it* (confidence at or above the decision-grade threshold — a
+   sub-threshold consensus must not move capital). Result keys are
+   capitalized (``Solvable``, ``Scoped``, ``Valid``, ``Worth_it``); any
+   ``FATAL`` result HALTs the submission.
+2. **Deterministic adversary foundation pass** — guardrails 40 + bounded
+   result 30 + golden parity 30. Parity is *replay parity*: the consensus
+   engine recomputes the weighted median from the same buffered submissions
+   (the swarm's own state is the golden reference; no external golden price
+   exists for a perp oracle — documented per the task's "state assertions
+   serve instead" allowance, which is applied to R0's Valid check). A parity
+   mismatch is fatal. The foundation floor is the package's ``blockchain``
+   floor (85), raised to ``.chp/R0_CONFIG.yaml``'s ``foundation.pass_threshold``
+   when that is stricter. Below the floor the case lands ``REFRAME_REQUIRED``
+   and the submission is refused.
+3. **Human lock.** Sessions start ``EXPLORING``; a hardened case is set
+   explicitly to ``PROVISIONAL_LOCK`` before third-party validation, and a
+   named ``confirmed_by`` is required before ``apply_third_party_validation``
+   locks it. ``SWARMFI_CHP_REQUIRE_HUMAN_LOCK`` defaults ON: capital only
+   moves on a ``LOCKED`` decision.
+4. **Decision ledger.** Append-only JSONL. The CHP payload envelope is
+   structure-only, so the ledger seals each record with its own SHA-256
+   ``body_sha256`` and re-validates envelope + body digest on every read
+   (``integrity_valid``). Refusals are recorded too — the mechanical answer
+   to "why didn't the swarm post?".
+
+The gate fails closed: a gate error refuses the submission rather than
+letting capital move ungated.
+"""
+
+from __future__ import annotations
+
+import datetime as dt
+import hashlib
+import json
+import logging
+import math
+import os
+import re
+import threading
+import uuid
+from dataclasses import asdict, dataclass, field
+from pathlib import Path
+from types import SimpleNamespace
+from typing import Any, Dict, List, Optional
+
+from chp import (
+    CHPOrchestrator,
+    CHPReport,
+    DecisionCase,
+    Dossier,
+    FoundationAttack,
+    FoundationDisclosure,
+    SessionStatus,
+    ThirdPartyValidation,
+    ValidationResult,
+    Verdict,
+    apply_third_party_validation,
+    build_payload_envelope,
+    validate_payload_envelope,
+)
+from chp.foundation import foundation_floor
+from chp.gates import GateEvaluation, evaluate_r0_gate
+
+logger = logging.getLogger("CHP")
+
+# Deterministic adversary scoring (out of 100) — the erp-control-plane split.
+_GUARDRAIL_POINTS = 40
+_BOUNDED_RESULT_POINTS = 30
+_PARITY_POINTS = 30
+_FULL_SCORE = _GUARDRAIL_POINTS + _BOUNDED_RESULT_POINTS + _PARITY_POINTS
+
+#: Package domain for this repo (``FOUNDATION_FLOORS["blockchain"] == 85``).
+_DOMAIN = "blockchain"
+
+_ASSET_PAIR = re.compile(r"^[A-Z0-9]{2,20}/[A-Z0-9]{2,20}$")
+_PASS_THRESHOLD = re.compile(r"pass_threshold:\s*(\d+)")
+
+# Replay tolerance: the consensus rounds to 8 decimals, so a faithful replay
+# matches to floating noise.
+_REPLAY_REL_TOLERANCE = 1e-6
+
+_ENVELOPE_ROUTE = "ORACLE_POST"
+
+
+class GateUnavailable(RuntimeError):
+    """The CHP package is missing — the gate refuses to run fail-closed."""
+
+
+@dataclass(frozen=True)
+class FoundationAssessment:
+    """The deterministic adversary's verdict on a would-be oracle post."""
+
+    score: int
+    domain: str
+    findings: List[str] = field(default_factory=list)
+    parity: Optional[Dict[str, Any]] = None
+    replay_matched: bool = False
+
+
+@dataclass(frozen=True)
+class GateOutcome:
+    """What the gate told the swarm loop about one would-be submission."""
+
+    allowed: bool
+    decision_id: str
+    reason: str
+    r0_results: Dict[str, str] = field(default_factory=dict)
+    foundation_score: Optional[int] = None
+    session_status: Optional[str] = None
+    findings: List[str] = field(default_factory=list)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+
+class DecisionLedger:
+    """Append-only JSONL of CHP decision records; integrity re-checked on read."""
+
+    def __init__(self, path: Path) -> None:
+        self.path = Path(path)
+        self._lock = threading.Lock()
+
+    def append(self, entry: Dict[str, Any]) -> None:
+        line = json.dumps(entry, ensure_ascii=False)
+        with self._lock:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            with self.path.open("a", encoding="utf-8") as handle:
+                handle.write(line + "\n")
+
+    def _read_all(self) -> List[Dict[str, Any]]:
+        with self._lock:
+            if not self.path.exists():
+                return []
+            lines = self.path.read_text(encoding="utf-8").splitlines()
+        return [json.loads(line) for line in lines if line.strip()]
+
+    def list(self, limit: int = 100) -> List[Dict[str, Any]]:
+        """Newest-first records with envelope and body digest re-validated on read."""
+        return [self._checked(entry) for entry in self._read_all()[-limit:]][::-1]
+
+    def get(self, decision_id: str) -> Optional[Dict[str, Any]]:
+        for entry in reversed(self._read_all()):
+            if entry.get("decision_id") == decision_id:
+                return self._checked(entry)
+        return None
+
+    @staticmethod
+    def _checked(entry: Dict[str, Any]) -> Dict[str, Any]:
+        """Re-validate on read: envelope structure and the ledger's own digest.
+
+        The CHP payload envelope validates structure only, so the ledger adds
+        its own SHA-256 over the sealed body — a tampered record reads as
+        ``integrity_valid: false``.
+        """
+        body = entry.get("body", "")
+        digest = hashlib.sha256(body.encode("utf-8")).hexdigest()
+        return {
+            **entry,
+            "envelope_valid": validate_payload_envelope(entry.get("envelope", "")),
+            "integrity_valid": digest == entry.get("body_sha256"),
+        }
+
+
+class SwarmfiChpGate:
+    """Runs a swarm consensus post through CHP: R0 -> foundation -> lock -> record."""
+
+    def __init__(
+        self,
+        *,
+        ledger_path: Path,
+        require_human_lock: bool = True,
+        confirmed_by: Optional[str] = None,
+        min_confidence: float = 0.5,
+        max_std_fraction: float = 0.10,
+        max_price_move: float = 0.25,
+        domain: str = _DOMAIN,
+        config_path: Optional[Path] = None,
+    ) -> None:
+        self.ledger = DecisionLedger(ledger_path)
+        self.require_human_lock = require_human_lock
+        self.confirmed_by = confirmed_by
+        self.min_confidence = min_confidence
+        self.max_std_fraction = max_std_fraction
+        self.max_price_move = max_price_move
+        self.domain = domain
+        self.config_path = config_path or (
+            Path(__file__).resolve().parents[2] / ".chp" / "R0_CONFIG.yaml"
+        )
+        # Last posted on-chain price per asset pair — the portfolio-state
+        # assertion behind R0's Valid check (see module docstring).
+        self._last_posted: Dict[str, float] = {}
+
+    # ------------------------------------------------------------- env setup
+    @classmethod
+    def from_env(cls, env: Optional[Dict[str, str]] = None) -> SwarmfiChpGate:
+        env = dict(os.environ if env is None else env)
+        return cls(
+            ledger_path=Path(
+                env.get("SWARMFI_CHP_DECISIONS_PATH", "~/.swarmfi/chp_decisions.jsonl")
+            ).expanduser(),
+            require_human_lock=env.get("SWARMFI_CHP_REQUIRE_HUMAN_LOCK", "1").strip().lower()
+            in {"1", "true", "yes"},
+            confirmed_by=env.get("SWARMFI_CHP_CONFIRMED_BY") or None,
+            min_confidence=float(env.get("SWARMFI_CHP_MIN_CONFIDENCE", "0.5")),
+            max_std_fraction=float(env.get("SWARMFI_CHP_MAX_STD_FRACTION", "0.10")),
+            max_price_move=float(env.get("SWARMFI_CHP_MAX_PRICE_MOVE", "0.25")),
+            domain=env.get("SWARMFI_CHP_DOMAIN", _DOMAIN),
+        )
+
+    @property
+    def floor(self) -> int:
+        """DeFi floor: the package's domain floor, raised by R0_CONFIG when stricter."""
+        floor = foundation_floor(self.domain)
+        try:
+            match = _PASS_THRESHOLD.search(self.config_path.read_text(encoding="utf-8"))
+        except OSError:
+            return floor
+        if match:
+            floor = max(floor, int(match.group(1)))
+        return floor
+
+    # -------------------------------------------------------- state tracking
+    def note_posted_price(self, asset_pair: str, price: float) -> None:
+        """Record the price actually posted on-chain (feeds R0's Valid assertion)."""
+        self._last_posted[asset_pair] = float(price)
+
+    # ------------------------------------------------------------------- R0
+    def evaluate_r0(
+        self,
+        result: Any,
+        *,
+        max_participants: Optional[int] = None,
+    ) -> GateEvaluation:
+        """The pre-submission gate: HALT before any capital-moving output.
+
+        ``result`` is duck-typed on the ``ConsensusResult`` shape so this
+        module stays free of the pydantic models.
+        """
+        price = float(result.consensus_price)
+        confidence = float(result.confidence)
+        participants = list(result.participating_agents)
+        pair = str(result.asset_pair).upper()
+
+        last = self._last_posted.get(pair)
+        within_move_bound = (
+            last is None
+            or last <= 0
+            or abs(price / last - 1.0) <= self.max_price_move
+        )
+
+        evaluation = evaluate_r0_gate(
+            solvable=(
+                math.isfinite(price)
+                and price > 0
+                and len(participants) >= 1
+            ),
+            scoped=(
+                bool(_ASSET_PAIR.match(pair))
+                and 0.0 <= confidence <= 1.0
+                and math.isfinite(float(result.std_deviation))
+                and (max_participants is None or len(participants) <= max_participants)
+            ),
+            valid=math.isfinite(price) and price > 0 and within_move_bound,
+            worth_it=confidence >= self.min_confidence,
+        )
+        return evaluation
+
+    # ------------------------------------------------------------ foundation
+    def assess_foundation(
+        self,
+        result: Any,
+        *,
+        submissions: List[Any],
+        agents: Optional[List[Any]] = None,
+        consensus_engine: Any = None,
+        max_participants: Optional[int] = None,
+    ) -> FoundationAssessment:
+        """The deterministic adversary scores the would-be post (0-100)."""
+        findings: List[str] = []
+        score = 0
+
+        pair = str(result.asset_pair).upper()
+        price = float(result.consensus_price)
+        confidence = float(result.confidence)
+        participants = list(result.participating_agents)
+
+        # Guardrails (40): structural legality of the would-be submission.
+        stale = [s for s in submissions if getattr(s, "metadata", {}).get("stale") is True]
+        guardrails_ok = (
+            bool(submissions)
+            and math.isfinite(price)
+            and price > 0
+            and 0.0 <= confidence <= 1.0
+            and bool(participants)
+            and all(float(s.price) > 0 for s in submissions)
+            and len({str(s.asset_pair).upper() for s in submissions}) == 1
+            and all(str(s.asset_pair).upper() == pair for s in submissions)
+            and not stale
+        )
+        if guardrails_ok:
+            score += _GUARDRAIL_POINTS
+            findings.append(
+                f"guardrails passed: {len(submissions)} submission(s) for {pair}, "
+                "positive prices, bounded confidence, no stale inputs"
+            )
+        else:
+            findings.append(
+                "guardrail failure: malformed submission set (empty, stale, "
+                "cross-pair, non-positive price, or unbounded confidence)"
+            )
+
+        # Bounded result (30): bounded participation and bounded dispersion.
+        min_submissions = getattr(consensus_engine, "min_submissions", 2)
+        std_deviation = float(result.std_deviation)
+        std_fraction = std_deviation / price if price > 0 else math.inf
+        if len(participants) < min_submissions:
+            findings.append(
+                f"unbounded result: {len(participants)} participant(s) below "
+                f"min_submissions={min_submissions}"
+            )
+        elif max_participants is not None and len(participants) > max_participants:
+            findings.append(
+                f"unbounded result: {len(participants)} participant(s) above "
+                f"registered max={max_participants}"
+            )
+        elif std_fraction > self.max_std_fraction:
+            findings.append(
+                f"unbounded result: std/price {std_fraction:.4f} above cap "
+                f"{self.max_std_fraction:.4f}"
+            )
+        else:
+            score += _BOUNDED_RESULT_POINTS
+            findings.append(
+                f"bounded result: {len(participants)} participant(s), "
+                f"std/price {std_fraction:.4f} within cap {self.max_std_fraction:.4f}"
+            )
+
+        # Golden parity (30): deterministic replay of the consensus from the
+        # same buffered submissions (the swarm's own state is the reference).
+        parity: Optional[Dict[str, Any]] = None
+        if consensus_engine is None:
+            findings.append(
+                "no consensus engine provided — replay parity evidence unavailable"
+            )
+        else:
+            replay, replay_error = self._replay(consensus_engine, submissions, agents)
+            if replay is None:
+                findings.append(
+                    f"replay parity unavailable: {replay_error}"
+                )
+            else:
+                replay_price = float(replay.consensus_price)
+                delta = abs(replay_price - price)
+                tolerance = max(1e-8, _REPLAY_REL_TOLERANCE * abs(price))
+                parity = {
+                    "expected": price,
+                    "actual": replay_price,
+                    "delta": delta,
+                    "tolerance": tolerance,
+                    "within_tolerance": delta <= tolerance,
+                }
+                if delta <= tolerance:
+                    score += _PARITY_POINTS
+                    findings.append(
+                        f"replay parity: engine recomputed {replay_price:.8f} for "
+                        f"{pair}, submitted {price:.8f} (delta {delta:.2e})"
+                    )
+                else:
+                    findings.append(
+                        f"replay parity MISMATCH: engine recomputed "
+                        f"{replay_price:.8f} for {pair}, submitted {price:.8f} "
+                        f"(delta {delta:.2e} > {tolerance:.2e})"
+                    )
+
+        return FoundationAssessment(
+            score=min(score, _FULL_SCORE),
+            domain=self.domain,
+            findings=findings,
+            parity=parity,
+            replay_matched=bool(parity and parity["within_tolerance"]),
+        )
+
+    @staticmethod
+    def _replay(
+        consensus_engine: Any,
+        submissions: List[Any],
+        agents: Optional[List[Any]],
+    ) -> tuple[Optional[Any], str]:
+        """Recompute consensus from the same inputs via the engine itself.
+
+        ``compute_consensus`` appends to the engine's in-memory history; that
+        side effect is undone so replay leaves no trace in swarm stats.
+        """
+        history = getattr(consensus_engine, "_history", None)
+        try:
+            replay = consensus_engine.compute_consensus(
+                submissions=list(submissions), agents=agents
+            )
+        except Exception as exc:  # noqa: BLE001 — the gate owns failure framing
+            replay = None
+            replay_error = f"replay raised {type(exc).__name__}: {exc}"
+        else:
+            if replay is None:
+                replay_error = "engine could not recompute a consensus"
+            elif str(replay.asset_pair).upper() != str(submissions[0].asset_pair).upper():
+                replay = None
+                replay_error = "replay surfaced a different asset pair"
+            else:
+                replay_error = ""
+        finally:
+            if history is not None:
+                del consensus_engine._history[len(history):]
+        return replay, replay_error
+
+    # --------------------------------------------------------------- session
+    def harden(
+        self,
+        result: Any,
+        *,
+        assessment: FoundationAssessment,
+        max_participants: Optional[int] = None,
+    ) -> tuple[DecisionCase, CHPReport]:
+        """Run the CHP session and open the case as PROVISIONAL_LOCK.
+
+        Sessions start EXPLORING (the package default); a foundation score
+        below the domain floor leaves the case REFRAME_REQUIRED — the caller
+        refuses those rather than letting them self-certify.
+        """
+        pair = str(result.asset_pair).upper()
+        price = float(result.consensus_price)
+        confidence = float(result.confidence)
+        participants = list(result.participating_agents)
+        last = self._last_posted.get(pair)
+
+        pair_slug = pair.replace("/", "-").lower()
+        case = DecisionCase(
+            decision_id=f"oracle-post-{int(result.timestamp * 1000)}-{pair_slug}",
+            title=f"Post {pair} consensus price {price:.8f} to the on-chain oracle",
+            domain=self.domain,
+            created_at=dt.datetime.now(dt.UTC).isoformat(),
+            owner="swarmfi-orchestrator",
+            high_stakes=True,
+            dossier=Dossier(
+                core_problem=(
+                    f"Post the swarm consensus price for {pair} to the on-chain "
+                    "oracle — the post marks perp positions and can trigger vault "
+                    "rebalances, so it moves capital"
+                ),
+                goal_state=[
+                    "the on-chain oracle price reflects hardened swarm agreement"
+                ],
+                current_state=[
+                    f"{len(participants)} agent submission(s) buffered for {pair}",
+                    f"consensus {price:.8f} at confidence {confidence:.2f}",
+                    (
+                        f"last posted price for {pair}: {last:.8f}"
+                        if last is not None
+                        else f"no prior on-chain post for {pair}"
+                    ),
+                ],
+                constraints=[
+                    f"foundation floor {self.floor} (blockchain/DeFi)",
+                    f"max std/price fraction {self.max_std_fraction}",
+                    f"max move vs last posted price {self.max_price_move}",
+                    "SWARMFI_CHP_REQUIRE_HUMAN_LOCK defaults ON",
+                ],
+                scope=[
+                    f"asset_pair:{pair}",
+                    "decision_class:oracle_price_post",
+                ],
+            ),
+        )
+        disclosure = FoundationDisclosure(
+            weakest_assumptions=[
+                "each buffered submission faithfully reflects its agent's data source",
+                (
+                    "the reputation-weighted median with outlier exclusion is the "
+                    "right aggregation for perp pricing"
+                ),
+            ],
+            invalidation_conditions=[
+                (
+                    "deterministic replay of the consensus from the buffered "
+                    "submissions diverges from the submitted price"
+                ),
+                "the move vs the last posted price exceeds the configured bound",
+            ],
+            key_vulnerability=(
+                "the oracle post has no external golden price — parity evidence is "
+                "replay parity against the swarm's own buffered submissions"
+            ),
+        )
+        attack = FoundationAttack(
+            attack_summary="; ".join(assessment.findings),
+            foundation_score=assessment.score,
+            vulnerability_strike=(
+                "without replay parity the post rests only on structural "
+                "guardrails, not on a recomputable consensus"
+            ),
+            assumption_attacks=[
+                "replay: recompute the consensus from the buffered submissions and compare",
+                "state assertion: bound the move against the last posted price",
+                "dispersion bound: std/price must stay under the configured cap",
+            ],
+        )
+
+        # Fresh orchestrator per case: the protocol registry is in-memory state
+        # we do not rely on — the decision ledger is the durable record.
+        report = CHPOrchestrator().run_initial_session(
+            case=case, foundation_disclosure=disclosure, foundation_attack=attack
+        )
+        return case, report
+
+    # ------------------------------------------------------------- human lock
+    def lock(self, case: DecisionCase, confirmed_by: str) -> SessionStatus:
+        """Third-party confirmation: PROVISIONAL_LOCK -> LOCKED."""
+        return apply_third_party_validation(
+            case,
+            ThirdPartyValidation(
+                validator=confirmed_by,
+                item=case.decision_id,
+                challenge=(
+                    "Confirm the consensus price post is solvable from the "
+                    "portfolio state and cleared the DeFi foundation floor"
+                ),
+                result=ValidationResult.CONFIRM,
+                rationale="Named confirmer approved the oracle post via the swarm gate",
+            ),
+        )
+
+    # ------------------------------------------------------------------ gate
+    def allow_submission(
+        self,
+        result: Any,
+        *,
+        submissions: List[Any],
+        agents: Optional[List[Any]] = None,
+        consensus_engine: Any = None,
+        max_participants: Optional[int] = None,
+    ) -> GateOutcome:
+        """Full gate run for one would-be oracle post. Fails closed."""
+        pair = str(result.asset_pair).upper()
+
+        evaluation = self.evaluate_r0(result, max_participants=max_participants)
+        if evaluation.verdict != Verdict.PASS:
+            failed = [
+                name for name, res in evaluation.results.items() if res != "PASS"
+            ]
+            reason = "CHP R0 gate: the oracle post failed " + ", ".join(sorted(failed))
+            return self._refuse(
+                kind="r0_refusal",
+                reason=reason,
+                pair=pair,
+                r0_results=dict(evaluation.results),
+            )
+
+        assessment = self.assess_foundation(
+            result,
+            submissions=submissions,
+            agents=agents,
+            consensus_engine=consensus_engine,
+            max_participants=max_participants,
+        )
+        if assessment.parity is not None and not assessment.parity["within_tolerance"]:
+            reason = (
+                "CHP foundation: "
+                + assessment.findings[-1]
+                + " — a consensus contradicting its own replay must not be posted"
+            )
+            return self._refuse(
+                kind="parity_mismatch",
+                reason=reason,
+                pair=pair,
+                r0_results=dict(evaluation.results),
+                assessment=assessment,
+            )
+
+        case, report = self.harden(
+            result, assessment=assessment, max_participants=max_participants
+        )
+        if (
+            report.foundation_verdict == Verdict.REFRAME
+            or case.status == SessionStatus.REFRAME_REQUIRED
+        ):
+            reason = (
+                f"CHP foundation: score {assessment.score} is below the "
+                f"{self.domain} floor {self.floor} — the case is REFRAME_REQUIRED"
+            )
+            return self._refuse(
+                kind="floor_refusal",
+                reason=reason,
+                pair=pair,
+                r0_results=dict(evaluation.results),
+                assessment=assessment,
+                case=case,
+                report=report,
+            )
+
+        # Explicit human-lock stage: PROVISIONAL_LOCK before validation, a
+        # named confirmed_by before LOCKED.
+        case.status = SessionStatus.PROVISIONAL_LOCK
+
+        session_status = SessionStatus.PROVISIONAL_LOCK
+        locked = False
+        if self.confirmed_by:
+            session_status = self.lock(case, self.confirmed_by)
+            locked = session_status == SessionStatus.LOCKED
+        if self.require_human_lock and not locked:
+            reason = (
+                "CHP human lock: SWARMFI_CHP_REQUIRE_HUMAN_LOCK is on and no "
+                "confirmed_by is configured — the oracle post waits for a "
+                "named human confirmation (SWARMFI_CHP_CONFIRMED_BY)"
+            )
+            self._record_decision(
+                case=case,
+                report=report,
+                assessment=assessment,
+                kind="human_lock_required",
+                reason=reason,
+                confirmed_by=None,
+            )
+            return GateOutcome(
+                allowed=False,
+                decision_id=case.decision_id,
+                reason=reason,
+                r0_results=dict(evaluation.results),
+                foundation_score=assessment.score,
+                session_status=session_status.value,
+                findings=assessment.findings,
+            )
+
+        reason = (
+            f"CHP gate passed: R0 PASS, foundation {assessment.score}/{self.floor}, "
+            f"decision {session_status.value}"
+        )
+        self._record_decision(
+            case=case,
+            report=report,
+            assessment=assessment,
+            kind="oracle_post",
+            reason=reason,
+            confirmed_by=self.confirmed_by if locked else None,
+        )
+        return GateOutcome(
+            allowed=True,
+            decision_id=case.decision_id,
+            reason=reason,
+            r0_results=dict(evaluation.results),
+            foundation_score=assessment.score,
+            session_status=session_status.value,
+            findings=assessment.findings,
+        )
+
+    # ---------------------------------------------------------------- record
+    def _refuse(
+        self,
+        *,
+        kind: str,
+        reason: str,
+        pair: str,
+        r0_results: Dict[str, str],
+        assessment: Optional[FoundationAssessment] = None,
+        case: Optional[DecisionCase] = None,
+        report: Optional[CHPReport] = None,
+    ) -> GateOutcome:
+        """Seal a refusal into the ledger and refuse the submission."""
+        if case is not None and report is not None:
+            self._record_decision(
+                case=case,
+                report=report,
+                assessment=assessment,
+                kind=kind,
+                reason=reason,
+                confirmed_by=None,
+            )
+            decision_id = case.decision_id
+            session_status = case.status.value
+            score = assessment.score if assessment else None
+        else:
+            decision_id = f"refusal-{uuid.uuid4().hex[:12]}"
+            session_status = SessionStatus.HALT.value
+            score = assessment.score if assessment else None
+            body = json.dumps(
+                {
+                    "asset_pair": pair,
+                    "decision_id": decision_id,
+                    "kind": kind,
+                    "reason": reason,
+                    "r0_results": r0_results,
+                },
+                sort_keys=True,
+                ensure_ascii=False,
+            )
+            self.ledger.append(
+                {
+                    "decision_id": decision_id,
+                    "created_at": dt.datetime.now(dt.UTC).isoformat(),
+                    "kind": kind,
+                    "asset_pair": pair,
+                    "session_status": session_status,
+                    "r0_results": r0_results,
+                    "reason": reason,
+                    "body": body,
+                    "body_sha256": hashlib.sha256(body.encode("utf-8")).hexdigest(),
+                    "envelope": build_payload_envelope(body, route=_ENVELOPE_ROUTE).render(),
+                }
+            )
+        logger.error("CHP gate refusal (%s): %s", kind, reason)
+        return GateOutcome(
+            allowed=False,
+            decision_id=decision_id,
+            reason=reason,
+            r0_results=r0_results,
+            foundation_score=score,
+            session_status=session_status,
+            findings=list(assessment.findings) if assessment else [],
+        )
+
+    def _record_decision(
+        self,
+        *,
+        case: DecisionCase,
+        report: CHPReport,
+        assessment: Optional[FoundationAssessment],
+        kind: str,
+        reason: str,
+        confirmed_by: Optional[str],
+    ) -> Dict[str, Any]:
+        """Seal the decision into a CHP payload envelope and append the ledger."""
+        body = json.dumps(
+            {
+                "asset_pair": getattr(case, "_asset_pair", None),
+                "adversary_findings": assessment.findings if assessment else [],
+                "confirmed_by": confirmed_by,
+                "decision_id": case.decision_id,
+                "domain": case.domain,
+                "foundation_score": case.foundation_score,
+                "locked_decisions": list(case.locked_decisions),
+                "parity": assessment.parity if assessment else None,
+                "r0_verdict": report.r0_verdict.value,
+                "foundation_verdict": report.foundation_verdict.value,
+                "title": case.title,
+            },
+            sort_keys=True,
+            ensure_ascii=False,
+        )
+        entry = {
+            "decision_id": case.decision_id,
+            "created_at": case.created_at,
+            "kind": kind,
+            "domain": case.domain,
+            "session_status": case.status.value,
+            "r0_verdict": report.r0_verdict.value,
+            "foundation_verdict": report.foundation_verdict.value,
+            "foundation_score": case.foundation_score,
+            "confirmed_by": confirmed_by,
+            "reason": reason,
+            "body": body,
+            "body_sha256": hashlib.sha256(body.encode("utf-8")).hexdigest(),
+            "envelope": build_payload_envelope(body, route=_ENVELOPE_ROUTE).render(),
+        }
+        self.ledger.append(entry)
+        return entry
+
+
+# --------------------------------------------------------------------------
+# Subprocess bridge: `python -m shared.chp_gate` (run from the agents/ dir).
+# Reads one JSON request on stdin, writes one JSON verdict on stdout — the
+# small Python gate script a non-Python (e.g. Rust) swarm process can exec.
+# Request: {"consensus": {...ConsensusResult fields...}, "submissions": [...],
+#           "agents": [...optional...], "last_posted_price": number|null,
+#           "max_participants": int|null}
+# Response: GateOutcome.to_dict()
+# --------------------------------------------------------------------------
+def _bridge_main() -> int:
+    import sys
+
+    raw = sys.stdin.read()
+    try:
+        request = json.loads(raw)
+        consensus_data = request["consensus"]
+        submission_data = request.get("submissions") or []
+        agents_data = request.get("agents") or []
+    except (json.JSONDecodeError, KeyError, TypeError) as exc:
+        json.dump({"error": f"bad request: {exc}"}, sys.stderr)
+        return 2
+
+    consensus = SimpleNamespace(
+        asset_pair=consensus_data["asset_pair"],
+        consensus_price=consensus_data["consensus_price"],
+        participating_agents=consensus_data.get("participating_agents", []),
+        confidence=consensus_data.get("confidence", 0.0),
+        timestamp=consensus_data.get("timestamp", 0.0),
+        std_deviation=consensus_data.get("std_deviation", 0.0),
+        num_outliers=consensus_data.get("num_outliers", 0),
+        weighted_median=consensus_data.get("weighted_median", 0.0),
+    )
+    submissions = [
+        SimpleNamespace(
+            asset_pair=sub["asset_pair"],
+            price=sub["price"],
+            confidence=sub.get("confidence", 0.0),
+            source=sub.get("source", ""),
+            agent_address=sub.get("agent_address", ""),
+            metadata=sub.get("metadata") or {},
+        )
+        for sub in submission_data
+    ]
+    agents = [
+        SimpleNamespace(
+            name=agent.get("name", ""),
+            agent_type=agent.get("agent_type", "PRICE"),
+            address=agent.get("address", ""),
+            reputation=agent.get("reputation", 0.5),
+        )
+        for agent in agents_data
+    ]
+
+    gate = SwarmfiChpGate.from_env()
+    last_price = request.get("last_posted_price")
+    if last_price is not None and "asset_pair" in consensus_data:
+        gate.note_posted_price(str(consensus_data["asset_pair"]), float(last_price))
+
+    # Replay parity needs the same engine the live path uses.
+    try:
+        from shared.consensus import SwarmConsensus
+
+        engine = SwarmConsensus()
+    except Exception as exc:  # noqa: BLE001 — reported, never swallowed
+        engine = None
+        logger.warning("replay engine unavailable in bridge: %s", exc)
+
+    outcome = gate.allow_submission(
+        consensus,
+        submissions=submissions,
+        agents=agents if agents else None,
+        consensus_engine=engine,
+        max_participants=request.get("max_participants"),
+    )
+    json.dump(outcome.to_dict(), sys.stdout)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(_bridge_main())

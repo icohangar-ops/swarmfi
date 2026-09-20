@@ -12,6 +12,7 @@ Usage:
 from __future__ import annotations
 
 import asyncio
+import json
 import signal
 import sys
 import time
@@ -24,12 +25,11 @@ if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
 import click
-
+from shared.chain_interface import InitiaChainInterface
+from shared.chp_gate import SwarmfiChpGate
 from shared.config import Settings
 from shared.consensus import SwarmConsensus
-from shared.chain_interface import InitiaChainInterface
 from shared.logger import (
-    COLORS,
     get_logger,
     log_banner,
     log_kv,
@@ -41,10 +41,9 @@ from shared.stigmergy import StigmergyField
 from shared.types import (
     AgentType,
     ConsensusResult,
-    StigmergySignal,
 )
+
 from orchestrator.agent_manager import AgentManager
-from orchestrator.health_monitor import HealthMonitor
 
 logger = get_logger("ORCHESTRATOR")
 
@@ -74,6 +73,7 @@ class SwarmFiOrchestrator:
         self.settings = settings
 
         # Core components
+        self.chp_gate = SwarmfiChpGate.from_env()
         self.stigmergy = StigmergyField(
             decay_rate=settings.stigmergy_decay_rate,
             max_signals=settings.stigmergy_max_signals,
@@ -92,6 +92,7 @@ class SwarmFiOrchestrator:
             settings=settings,
             stigmergy=self.stigmergy,
             consensus=self.consensus,
+            chp_gate=self.chp_gate,
         )
 
         self._shutdown_event = asyncio.Event()
@@ -123,6 +124,12 @@ class SwarmFiOrchestrator:
         log_kv("Consensus Threshold", f"{self.settings.consensus_threshold:.0%}")
         log_kv("Stigmergy Decay", f"{self.settings.stigmergy_decay_rate:.2f}")
         log_kv("Log Level", self.settings.log_level)
+        log_kv(
+            "CHP Gate",
+            f"ON ({self.chp_gate.domain}, floor {self.chp_gate.floor}, "
+            f"human lock {'ON' if self.chp_gate.require_human_lock else 'OFF'})",
+        )
+        log_kv("CHP Decision Ledger", str(self.chp_gate.ledger.path))
 
         # Start stigmergy field
         await self.stigmergy.start(decay_interval=5.0)
@@ -247,13 +254,6 @@ class SwarmFiOrchestrator:
                     config=res_config,
                 )
 
-        total = sum(1 for v in [
-            self.settings.price_agent_config.enabled,
-            self.settings.risk_agent_config.enabled,
-            self.settings.market_maker_agent_config.enabled,
-            self.settings.resolution_agent_config.enabled,
-        ] for _ in range(1))
-
         agent_count = len(self.agent_manager._agents)
         logger.info(f"Spawned {agent_count} agents across 4 categories")
 
@@ -283,6 +283,12 @@ class SwarmFiOrchestrator:
                             agent_address="consensus_engine",
                         ),
                     )
+                    if tx.success:
+                        # Feed the gate's portfolio-state assertion (R0 Valid:
+                        # the next post is bounded vs the last posted price).
+                        self.chp_gate.note_posted_price(
+                            result.asset_pair, result.consensus_price
+                        )
 
             except asyncio.CancelledError:
                 break
@@ -384,17 +390,74 @@ class SwarmFiOrchestrator:
     default=120,
     help="Demo duration in seconds (0 = infinite).",
 )
+@click.option(
+    "--list-chp-decisions",
+    "list_chp_decisions",
+    type=int,
+    default=0,
+    help="Print the N newest CHP decision-ledger records (integrity re-checked) and exit.",
+)
+@click.option(
+    "--chp-decision",
+    "chp_decision_id",
+    type=str,
+    default=None,
+    help="Print one CHP decision-ledger record by decision id and exit.",
+)
+@click.option(
+    "--chp-verify",
+    is_flag=True,
+    default=False,
+    help="Re-validate integrity of every CHP decision-ledger record and exit.",
+)
 def main(
     demo: bool,
     config_path: Optional[str],
     log_level: Optional[str],
     duration: int,
+    list_chp_decisions: int,
+    chp_decision_id: Optional[str],
+    chp_verify: bool,
 ) -> None:
     """🐝 SwarmFi AI Agent Orchestrator
 
     Manages the lifecycle of all AI agents, coordinates stigmergic
     communication, computes consensus, and submits results to Initia.
     """
+    # CHP decision-ledger admin queries share the orchestrator entrypoint.
+    gate = SwarmfiChpGate.from_env()
+    if chp_decision_id:
+        record = gate.ledger.get(chp_decision_id)
+        if record is None:
+            click.echo(f"no CHP decision record {chp_decision_id}", err=True)
+            raise SystemExit(1)
+        click.echo(json.dumps(record, indent=2))
+        return
+    if list_chp_decisions > 0:
+        records = gate.ledger.list(list_chp_decisions)
+        click.echo(json.dumps(records, indent=2))
+        return
+    if chp_verify:
+        records = gate.ledger.list(limit=100000)
+        invalid = [
+            r for r in records
+            if not r.get("integrity_valid") or not r.get("envelope_valid")
+        ]
+        click.echo(
+            f"CHP decision ledger: {len(records)} record(s), "
+            f"{len(invalid)} invalid"
+        )
+        for record in invalid:
+            click.echo(
+                f"  INVALID {record.get('decision_id')}: "
+                f"integrity_valid={record.get('integrity_valid')} "
+                f"envelope_valid={record.get('envelope_valid')}",
+                err=True,
+            )
+        if invalid:
+            raise SystemExit(1)
+        return
+
     # Build settings
     if config_path:
         settings = Settings.from_yaml(config_path)

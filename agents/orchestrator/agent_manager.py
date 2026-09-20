@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import time
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional
 
 from shared.config import Settings
 from shared.consensus import SwarmConsensus
@@ -19,11 +19,11 @@ from shared.types import (
     AgentStatus,
     AgentType,
     ConsensusResult,
-    HealthCheck,
     PriceSubmission,
     RiskAssessment,
     StigmergySignal,
 )
+
 from orchestrator.health_monitor import HealthMonitor
 
 logger = get_logger("ORCHESTRATOR")
@@ -88,6 +88,7 @@ class AgentManager:
         settings: Settings,
         stigmergy: StigmergyField,
         consensus: SwarmConsensus,
+        chp_gate: Optional[Any] = None,
     ) -> None:
         """Initialize the agent manager.
 
@@ -95,10 +96,14 @@ class AgentManager:
             settings: Application settings.
             stigmergy: Shared stigmergy field.
             consensus: Consensus engine.
+            chp_gate: Optional CHP gate (SwarmfiChpGate) consulted before
+                consensus may reach the on-chain submission path. When set,
+                capital only moves on a gate-allowed decision.
         """
         self.settings = settings
         self.stigmergy = stigmergy
         self.consensus = consensus
+        self.chp_gate = chp_gate
 
         self._agents: Dict[str, AgentInstance] = {}
         self._price_submissions: List[PriceSubmission] = []
@@ -337,6 +342,35 @@ class AgentManager:
             agents=agents if agents else None,
         )
 
+        if result and self.chp_gate is not None:
+            # CHP gate-only integration: every capital-moving output (the
+            # on-chain oracle post in orchestrator.main) passes R0 ->
+            # foundation -> human lock first. Any refusal clears the buffers
+            # and reports no consensus, so nothing is deposited, nothing is
+            # submitted, and the refusal is sealed in the decision ledger.
+            try:
+                outcome = self.chp_gate.allow_submission(
+                    result,
+                    submissions=list(self._price_submissions),
+                    agents=agents if agents else None,
+                    consensus_engine=self.consensus,
+                    max_participants=len(agents) if agents else None,
+                )
+            except Exception:
+                # Fail closed: a broken gate must never let capital move ungated.
+                logger.exception("CHP gate error — refusing on-chain submission")
+                self._price_submissions.clear()
+                self._risk_assessments.clear()
+                return None
+            if not outcome.allowed:
+                logger.error(
+                    f"CHP gate refused on-chain submission for "
+                    f"{result.asset_pair}: {outcome.reason}"
+                )
+                self._price_submissions.clear()
+                self._risk_assessments.clear()
+                return None
+
         if result:
             # Deposit consensus signal
             signal = StigmergySignal(
@@ -381,7 +415,6 @@ class AgentManager:
     async def print_status(self) -> None:
         """Print a status dashboard of all agents to the console."""
         agents = await self.get_all_agents()
-        health = self.health_monitor.get_all_agent_health()
         signal_count = await self.stigmergy.get_signal_count()
         field_stats = self.stigmergy.get_stats()
 
@@ -462,7 +495,6 @@ class AgentManager:
             agent_type: Type of agent.
             config: Agent configuration.
         """
-        import random
 
         instance = self._agents.get(agent_id)
         if not instance:

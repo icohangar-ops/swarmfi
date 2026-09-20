@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "swarmfi-agents"
+version = "0.1.0"
+description = "SwarmFi agent dependencies. The agent runtime is executed from the agents/ directory, not installed as a package — this distribution exists so CI and dev environments can resolve the agent stack with pip install -e '.[dev]'."
+requires-python = ">=3.9"
+dependencies = [
+  "aiohttp>=3.9",
+  "numpy>=1.24",
+  "pydantic>=2.0",
+  "pydantic-settings>=2.0",
+  "PyYAML>=6.0",
+  "click>=8.1",
+  "loguru>=0.7",
+  "consensus-hardening-protocol==0.1.1",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0", "ruff>=0.5"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+
+[tool.ruff.lint]
+# Baseline: pycodestyle errors + pyflakes + import sorting + warnings.
+# Upgrades (UP), blind-except (BLE) etc. are deliberately not selected —
+# modernizing the pre-existing agent stack is out of scope for the CHP gate.
+select = ["E", "F", "W", "I"]
+
+[tool.ruff.lint.per-file-ignores]
+# orchestrator/main.py inserts the agents/ project root into sys.path before
+# importing shared/orchestrator modules — imports after that bootstrap are the point.
+"agents/orchestrator/main.py" = ["E402"]
+
+[tool.setuptools]
+py-modules = []
+packages = []
