@@ -32,5 +32,8 @@
     "eslint-config-next": "15.5.14",
     "tailwindcss": "^4",
     "typescript": "^5"
+  },
+  "overrides": {
+    "protobufjs": "7.6.6"
   }
 }
